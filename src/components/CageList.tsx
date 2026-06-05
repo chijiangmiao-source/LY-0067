@@ -6,7 +6,6 @@ import {
   VStack,
   Button,
   Input,
-  Select,
   Table,
   Thead,
   Tbody,
@@ -134,17 +133,26 @@ export default function CageList() {
             onInput={(e) => setSearchText(e.currentTarget.value)}
             maxW="300px"
           />
-          <Select
+          <Box
+            as="select"
             value={statusFilter()}
             onChange={(e) => setStatusFilter(e.currentTarget.value)}
             maxW="150px"
+            px="$3"
+            py="$2"
+            border="1px solid"
+            borderColor="neutral.200"
+            rounded="$md"
+            fontSize="$md"
+            bg="white"
+            _focus={{ outline: "none", borderColor: "primary.500", boxShadow: "0 0 0 3px rgba(59,130,246,0.1)" }}
           >
             <option value="all">全部状态</option>
             <option value="normal">正常</option>
             <option value="to_eliminate">待淘汰</option>
             <option value="eliminated">已淘汰</option>
             <option value="cleared">已清空</option>
-          </Select>
+          </Box>
         </HStack>
         {filteredCages().length === 0 ? (
           <Text color="gray.500" textAlign="center" py="$8">

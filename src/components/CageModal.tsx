@@ -9,7 +9,6 @@ import {
   FormControl,
   FormLabel,
   Input,
-  Select,
   Button,
   Box,
 } from '@hope-ui/solid';
@@ -131,20 +130,46 @@ export default function CageModal(props: CageModalProps) {
           </FormControl>
           <FormControl mb="$3">
             <FormLabel>淘汰状态</FormLabel>
-            <Select value={eliminationStatus()} onChange={(e) => setEliminationStatus(e.currentTarget.value as any)}>
+            <Box
+              as="select"
+              value={eliminationStatus()}
+              onChange={(e) => setEliminationStatus(e.currentTarget.value as any)}
+              w="100%"
+              px="$3"
+              py="$2"
+              border="1px solid"
+              borderColor="neutral.200"
+              rounded="$md"
+              fontSize="$md"
+              bg="white"
+              _focus={{ outline: "none", borderColor: "primary.500", boxShadow: "0 0 0 3px rgba(59,130,246,0.1)" }}
+            >
               <option value="normal">正常</option>
               <option value="to_eliminate">待淘汰</option>
               <option value="eliminated">已淘汰</option>
               <option value="cleared">已清空</option>
-            </Select>
+            </Box>
           </FormControl>
           <FormControl mb="$3">
             <FormLabel>清洁状态</FormLabel>
-            <Select value={cleanStatus()} onChange={(e) => setCleanStatus(e.currentTarget.value as any)}>
+            <Box
+              as="select"
+              value={cleanStatus()}
+              onChange={(e) => setCleanStatus(e.currentTarget.value as any)}
+              w="100%"
+              px="$3"
+              py="$2"
+              border="1px solid"
+              borderColor="neutral.200"
+              rounded="$md"
+              fontSize="$md"
+              bg="white"
+              _focus={{ outline: "none", borderColor: "primary.500", boxShadow: "0 0 0 3px rgba(59,130,246,0.1)" }}
+            >
               <option value="clean">清洁</option>
               <option value="dirty">污染</option>
               <option value="need_clean">待清洁</option>
-            </Select>
+            </Box>
           </FormControl>
         </ModalBody>
         <ModalFooter>

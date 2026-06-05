@@ -120,8 +120,11 @@ export default function EliminationModal(props: EliminationModalProps) {
             <Input
               value={personInCharge()}
               onInput={(e) => setPersonInCharge(e.currentTarget.value)}
-              placeholder="请输入负责人姓名"
+              placeholder="请输入负责人姓名（中文/英文/数字，2-20字符）"
             />
+            <Text size="xs" color="gray.500" mt="$1">
+              只能包含中文、英文字母、数字、空格和中间点
+            </Text>
           </FormControl>
           <FormControl mb="$3">
             <FormLabel>备注</FormLabel>

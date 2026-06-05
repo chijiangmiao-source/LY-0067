@@ -3,6 +3,7 @@ import type { Cage, EliminationRecord } from '../types';
 
 const CAGES_KEY = 'cage_tracker_cages';
 const RECORDS_KEY = 'cage_tracker_records';
+const DELETED_NUMBERS_KEY = 'cage_tracker_deleted_numbers';
 
 function loadFromStorage<T>(key: string, defaultValue: T): T {
   try {
@@ -25,6 +26,9 @@ const [cages, setCages] = createSignal<Cage[]>(loadFromStorage<Cage[]>(CAGES_KEY
 const [records, setRecords] = createSignal<EliminationRecord[]>(
   loadFromStorage<EliminationRecord[]>(RECORDS_KEY, [])
 );
+const [deletedNumbers, setDeletedNumbers] = createSignal<string[]>(
+  loadFromStorage<string[]>(DELETED_NUMBERS_KEY, [])
+);
 
 createEffect(() => {
   saveToStorage(CAGES_KEY, cages());
@@ -34,8 +38,25 @@ createEffect(() => {
   saveToStorage(RECORDS_KEY, records());
 });
 
+createEffect(() => {
+  saveToStorage(DELETED_NUMBERS_KEY, deletedNumbers());
+});
+
+export function validatePersonName(name: string): string | null {
+  if (!name.trim()) return '负责人不能为空';
+  const trimmed = name.trim();
+  if (trimmed.length < 2 || trimmed.length > 20) {
+    return '负责人姓名长度必须在 2-20 个字符之间';
+  }
+  const validPattern = /^[\u4e00-\u9fa5a-zA-Z0-9·\s]+$/;
+  if (!validPattern.test(trimmed)) {
+    return '负责人姓名只能包含中文、英文字母、数字、空格和中间点';
+  }
+  return null;
+}
+
 export function useCageStore() {
-  const validateCage = (cage: Omit<Cage, 'id' | 'createdAt' | 'updatedAt'>, excludeId?: string): string | null => {
+  const validateCage = (cage: Omit<Cage, 'id' | 'createdAt' | 'updatedAt'>, excludeId?: string, isNew = false): string | null => {
     if (!cage.cageNumber.trim()) return '笼位编号不能为空';
     if (!cage.strain.trim()) return '动物品系不能为空';
     if (cage.currentCount < 0) return '当前数量必须大于等于 0';
@@ -45,11 +66,15 @@ export function useCageStore() {
     );
     if (duplicate) return '笼位编号不能重复';
 
+    if (isNew && deletedNumbers().includes(cage.cageNumber)) {
+      return '该笼位编号已被删除过，不能重复使用';
+    }
+
     return null;
   };
 
   const addCage = (cageData: Omit<Cage, 'id' | 'createdAt' | 'updatedAt'>): string | null => {
-    const error = validateCage(cageData);
+    const error = validateCage(cageData, undefined, true);
     if (error) return error;
 
     const now = new Date().toISOString();
@@ -60,6 +85,7 @@ export function useCageStore() {
       updatedAt: now,
     };
     setCages([...cages(), newCage]);
+    setDeletedNumbers(deletedNumbers().filter((n) => n !== cageData.cageNumber));
     return null;
   };
 
@@ -68,7 +94,7 @@ export function useCageStore() {
     if (!existing) return '笼位不存在';
 
     const merged = { ...existing, ...cageData };
-    const error = validateCage(merged, id);
+    const error = validateCage(merged, id, false);
     if (error) return error;
 
     setCages(
@@ -80,6 +106,10 @@ export function useCageStore() {
   };
 
   const deleteCage = (id: string): void => {
+    const cage = cages().find((c) => c.id === id);
+    if (cage && !deletedNumbers().includes(cage.cageNumber)) {
+      setDeletedNumbers([...deletedNumbers(), cage.cageNumber]);
+    }
     setCages(cages().filter((c) => c.id !== id));
   };
 
@@ -89,6 +119,7 @@ export function useCageStore() {
 
   return {
     cages,
+    deletedNumbers,
     addCage,
     updateCage,
     deleteCage,
@@ -109,7 +140,9 @@ export function useRecordStore() {
     if (elimDate > today) return '淘汰日期不能晚于当前日期';
     if (record.eliminationCount <= 0) return '淘汰数量必须大于 0';
     if (record.eliminationCount > cage.currentCount) return '淘汰数量不能超过当前数量';
-    if (!record.personInCharge.trim()) return '负责人不能为空';
+
+    const nameError = validatePersonName(record.personInCharge);
+    if (nameError) return nameError;
 
     return null;
   };

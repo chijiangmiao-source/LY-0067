@@ -1,9 +1,21 @@
 import { createSignal, createEffect } from 'solid-js';
-import type { Cage, EliminationRecord } from '../types';
+import type {
+  Cage,
+  EliminationRecord,
+  CageChangeLog,
+  CleanStatus,
+  BatchOperationResult,
+  ChangeLogType,
+} from '../types';
+import {
+  ELIMINATION_STATUS_LABELS,
+  CLEAN_STATUS_LABELS,
+} from '../constants';
 
 const CAGES_KEY = 'cage_tracker_cages';
 const RECORDS_KEY = 'cage_tracker_records';
 const DELETED_NUMBERS_KEY = 'cage_tracker_deleted_numbers';
+const CHANGE_LOGS_KEY = 'cage_tracker_change_logs';
 
 function loadFromStorage<T>(key: string, defaultValue: T): T {
   try {
@@ -22,12 +34,19 @@ function generateId(): string {
   return Date.now().toString(36) + Math.random().toString(36).substr(2);
 }
 
+function generateBatchId(): string {
+  return 'batch_' + Date.now().toString(36) + Math.random().toString(36).substr(2, 4);
+}
+
 const [cages, setCages] = createSignal<Cage[]>(loadFromStorage<Cage[]>(CAGES_KEY, []));
 const [records, setRecords] = createSignal<EliminationRecord[]>(
   loadFromStorage<EliminationRecord[]>(RECORDS_KEY, [])
 );
 const [deletedNumbers, setDeletedNumbers] = createSignal<string[]>(
   loadFromStorage<string[]>(DELETED_NUMBERS_KEY, [])
+);
+const [changeLogs, setChangeLogs] = createSignal<CageChangeLog[]>(
+  loadFromStorage<CageChangeLog[]>(CHANGE_LOGS_KEY, [])
 );
 
 createEffect(() => {
@@ -42,6 +61,10 @@ createEffect(() => {
   saveToStorage(DELETED_NUMBERS_KEY, deletedNumbers());
 });
 
+createEffect(() => {
+  saveToStorage(CHANGE_LOGS_KEY, changeLogs());
+});
+
 export function validatePersonName(name: string): string | null {
   if (!name.trim()) return '负责人不能为空';
   const trimmed = name.trim();
@@ -53,6 +76,67 @@ export function validatePersonName(name: string): string | null {
     return '负责人姓名只能包含中文、英文字母、数字、空格和中间点';
   }
   return null;
+}
+
+function addChangeLog(log: Omit<CageChangeLog, 'id' | 'timestamp'>): void {
+  const newLog: CageChangeLog = {
+    ...log,
+    id: generateId(),
+    timestamp: new Date().toISOString(),
+  };
+  setChangeLogs((prev) => [newLog, ...prev]);
+}
+
+function getFieldLabel(fieldName: string): string {
+  const labels: Record<string, string> = {
+    currentCount: '当前数量',
+    eliminationStatus: '淘汰状态',
+    cleanStatus: '清洁状态',
+    strain: '动物品系',
+    shelf: '所在架位',
+    cageNumber: '笼位编号',
+  };
+  return labels[fieldName] || fieldName;
+}
+
+function formatFieldValue(fieldName: string, value: string | number): string {
+  if (fieldName === 'eliminationStatus') {
+    return ELIMINATION_STATUS_LABELS[value as keyof typeof ELIMINATION_STATUS_LABELS] || String(value);
+  }
+  if (fieldName === 'cleanStatus') {
+    return CLEAN_STATUS_LABELS[value as keyof typeof CLEAN_STATUS_LABELS] || String(value);
+  }
+  return String(value);
+}
+
+function logFieldChanges(existing: Cage, updates: Partial<Cage>, personInCharge?: string): void {
+  const fieldMap: Record<string, { key: string; logType: ChangeLogType }> = {
+    currentCount: { key: 'currentCount', logType: 'count' },
+    eliminationStatus: { key: 'eliminationStatus', logType: 'elimination_status' },
+    cleanStatus: { key: 'cleanStatus', logType: 'clean_status' },
+    strain: { key: 'strain', logType: 'strain' },
+    shelf: { key: 'shelf', logType: 'shelf' },
+  };
+
+  for (const mapping of Object.values(fieldMap)) {
+    const key = mapping.key as keyof Cage;
+    if (key in updates) {
+      const oldValue = existing[key];
+      const newValue = updates[key];
+      if (oldValue !== newValue) {
+        addChangeLog({
+          cageId: existing.id,
+          cageNumber: existing.cageNumber,
+          strain: existing.strain,
+          changeType: mapping.logType,
+          fieldName: getFieldLabel(key),
+          oldValue: formatFieldValue(key, oldValue as string | number),
+          newValue: formatFieldValue(key, newValue as string | number),
+          personInCharge,
+        });
+      }
+    }
+  }
 }
 
 export function useCageStore() {
@@ -73,7 +157,7 @@ export function useCageStore() {
     return null;
   };
 
-  const addCage = (cageData: Omit<Cage, 'id' | 'createdAt' | 'updatedAt'>): string | null => {
+  const addCage = (cageData: Omit<Cage, 'id' | 'createdAt' | 'updatedAt'>, personInCharge?: string): string | null => {
     const error = validateCage(cageData, undefined, true);
     if (error) return error;
 
@@ -86,16 +170,29 @@ export function useCageStore() {
     };
     setCages([...cages(), newCage]);
     setDeletedNumbers(deletedNumbers().filter((n) => n !== cageData.cageNumber));
+
+    addChangeLog({
+      cageId: newCage.id,
+      cageNumber: newCage.cageNumber,
+      strain: newCage.strain,
+      changeType: 'cage_created',
+      fieldName: '笼位创建',
+      newValue: `${newCage.cageNumber} (品系: ${newCage.strain}, 数量: ${newCage.currentCount})`,
+      personInCharge,
+    });
+
     return null;
   };
 
-  const updateCage = (id: string, cageData: Partial<Cage>): string | null => {
+  const updateCage = (id: string, cageData: Partial<Cage>, personInCharge?: string): string | null => {
     const existing = cages().find((c) => c.id === id);
     if (!existing) return '笼位不存在';
 
     const merged = { ...existing, ...cageData };
     const error = validateCage(merged, id, false);
     if (error) return error;
+
+    logFieldChanges(existing, cageData, personInCharge);
 
     setCages(
       cages().map((c) =>
@@ -105,16 +202,180 @@ export function useCageStore() {
     return null;
   };
 
-  const deleteCage = (id: string): void => {
+  const deleteCage = (id: string, personInCharge?: string): void => {
     const cage = cages().find((c) => c.id === id);
-    if (cage && !deletedNumbers().includes(cage.cageNumber)) {
-      setDeletedNumbers([...deletedNumbers(), cage.cageNumber]);
+    if (cage) {
+      if (!deletedNumbers().includes(cage.cageNumber)) {
+        setDeletedNumbers([...deletedNumbers(), cage.cageNumber]);
+      }
+
+      addChangeLog({
+        cageId: cage.id,
+        cageNumber: cage.cageNumber,
+        strain: cage.strain,
+        changeType: 'cage_deleted',
+        fieldName: '笼位删除',
+        oldValue: `${cage.cageNumber} (品系: ${cage.strain}, 数量: ${cage.currentCount})`,
+        personInCharge,
+      });
     }
     setCages(cages().filter((c) => c.id !== id));
   };
 
   const getCageById = (id: string): Cage | undefined => {
     return cages().find((c) => c.id === id);
+  };
+
+  const batchMarkToEliminate = (cageIds: string[], personInCharge?: string): BatchOperationResult => {
+    const result: BatchOperationResult = { success: [], failed: [], total: cageIds.length };
+    const batchId = generateBatchId();
+
+    for (const id of cageIds) {
+      const cage = getCageById(id);
+      if (!cage) {
+        result.failed.push({ cageId: id, cageNumber: '未知', reason: '笼位不存在' });
+        continue;
+      }
+      if (cage.eliminationStatus === 'eliminated' || cage.eliminationStatus === 'cleared') {
+        result.failed.push({
+          cageId: id,
+          cageNumber: cage.cageNumber,
+          reason: `当前状态为「${ELIMINATION_STATUS_LABELS[cage.eliminationStatus]}」，无法标记待淘汰`,
+        });
+        continue;
+      }
+      if (cage.eliminationStatus === 'to_eliminate') {
+        result.failed.push({
+          cageId: id,
+          cageNumber: cage.cageNumber,
+          reason: '已经是待淘汰状态',
+        });
+        continue;
+      }
+
+      addChangeLog({
+        cageId: cage.id,
+        cageNumber: cage.cageNumber,
+        strain: cage.strain,
+        changeType: 'batch_mark_to_eliminate',
+        fieldName: '淘汰状态',
+        oldValue: formatFieldValue('eliminationStatus', cage.eliminationStatus),
+        newValue: ELIMINATION_STATUS_LABELS.to_eliminate,
+        personInCharge,
+        batchId,
+      });
+
+      setCages(
+        cages().map((c) =>
+          c.id === id
+            ? { ...c, eliminationStatus: 'to_eliminate' as const, updatedAt: new Date().toISOString() }
+            : c
+        )
+      );
+      result.success.push(cage.cageNumber);
+    }
+
+    return result;
+  };
+
+  const batchClearCages = (cageIds: string[], personInCharge?: string): BatchOperationResult => {
+    const result: BatchOperationResult = { success: [], failed: [], total: cageIds.length };
+    const batchId = generateBatchId();
+
+    for (const id of cageIds) {
+      const cage = getCageById(id);
+      if (!cage) {
+        result.failed.push({ cageId: id, cageNumber: '未知', reason: '笼位不存在' });
+        continue;
+      }
+      if (cage.currentCount > 0) {
+        result.failed.push({
+          cageId: id,
+          cageNumber: cage.cageNumber,
+          reason: `笼位还有 ${cage.currentCount} 只动物，不能清空`,
+        });
+        continue;
+      }
+      if (cage.eliminationStatus === 'cleared') {
+        result.failed.push({
+          cageId: id,
+          cageNumber: cage.cageNumber,
+          reason: '已经是已清空状态',
+        });
+        continue;
+      }
+
+      addChangeLog({
+        cageId: cage.id,
+        cageNumber: cage.cageNumber,
+        strain: cage.strain,
+        changeType: 'batch_clear',
+        fieldName: '淘汰状态',
+        oldValue: formatFieldValue('eliminationStatus', cage.eliminationStatus),
+        newValue: ELIMINATION_STATUS_LABELS.cleared,
+        personInCharge,
+        batchId,
+      });
+
+      setCages(
+        cages().map((c) =>
+          c.id === id
+            ? { ...c, eliminationStatus: 'cleared' as const, updatedAt: new Date().toISOString() }
+            : c
+        )
+      );
+      result.success.push(cage.cageNumber);
+    }
+
+    return result;
+  };
+
+  const batchUpdateCleanStatus = (
+    cageIds: string[],
+    cleanStatus: CleanStatus,
+    personInCharge?: string
+  ): BatchOperationResult => {
+    const result: BatchOperationResult = { success: [], failed: [], total: cageIds.length };
+    const batchId = generateBatchId();
+
+    for (const id of cageIds) {
+      const cage = getCageById(id);
+      if (!cage) {
+        result.failed.push({ cageId: id, cageNumber: '未知', reason: '笼位不存在' });
+        continue;
+      }
+      if (cage.cleanStatus === cleanStatus) {
+        result.failed.push({
+          cageId: id,
+          cageNumber: cage.cageNumber,
+          reason: `已经是「${CLEAN_STATUS_LABELS[cleanStatus]}」状态`,
+        });
+        continue;
+      }
+
+      addChangeLog({
+        cageId: cage.id,
+        cageNumber: cage.cageNumber,
+        strain: cage.strain,
+        changeType: 'batch_update_clean_status',
+        fieldName: '清洁状态',
+        oldValue: formatFieldValue('cleanStatus', cage.cleanStatus),
+        newValue: CLEAN_STATUS_LABELS[cleanStatus],
+        personInCharge,
+        batchId,
+      });
+
+      setCages(
+        cages().map((c) =>
+          c.id === id
+            ? { ...c, cleanStatus, updatedAt: new Date().toISOString() }
+            : c
+        )
+      );
+      result.success.push(cage.cageNumber);
+    }
+
+    return result;
   };
 
   return {
@@ -124,6 +385,9 @@ export function useCageStore() {
     updateCage,
     deleteCage,
     getCageById,
+    batchMarkToEliminate,
+    batchClearCages,
+    batchUpdateCleanStatus,
   };
 }
 
@@ -168,6 +432,44 @@ export function useRecordStore() {
 
     const newCount = cage.currentCount - recordData.eliminationCount;
     const newStatus = newCount === 0 ? 'eliminated' : cage.eliminationStatus;
+
+    addChangeLog({
+      cageId: cage.id,
+      cageNumber: cage.cageNumber,
+      strain: cage.strain,
+      changeType: 'elimination',
+      fieldName: '淘汰登记',
+      oldValue: `数量 ${cage.currentCount}`,
+      newValue: `淘汰 ${recordData.eliminationCount} 只，剩余 ${newCount}`,
+      personInCharge: recordData.personInCharge,
+      remarks: recordData.remarks,
+    });
+
+    if (newCount !== cage.currentCount) {
+      addChangeLog({
+        cageId: cage.id,
+        cageNumber: cage.cageNumber,
+        strain: cage.strain,
+        changeType: 'count',
+        fieldName: '当前数量',
+        oldValue: cage.currentCount,
+        newValue: newCount,
+        personInCharge: recordData.personInCharge,
+      });
+    }
+    if (newStatus !== cage.eliminationStatus) {
+      addChangeLog({
+        cageId: cage.id,
+        cageNumber: cage.cageNumber,
+        strain: cage.strain,
+        changeType: 'elimination_status',
+        fieldName: '淘汰状态',
+        oldValue: formatFieldValue('eliminationStatus', cage.eliminationStatus),
+        newValue: formatFieldValue('eliminationStatus', newStatus),
+        personInCharge: recordData.personInCharge,
+      });
+    }
+
     cageStore.updateCage(cage.id, {
       currentCount: newCount,
       eliminationStatus: newStatus,
@@ -176,11 +478,22 @@ export function useRecordStore() {
     return null;
   };
 
-  const clearCage = (cageId: string): string | null => {
+  const clearCage = (cageId: string, personInCharge?: string): string | null => {
     const cageStore = useCageStore();
     const cage = cageStore.getCageById(cageId);
     if (!cage) return '笼位不存在';
     if (cage.currentCount > 0) return '笼位还有动物，不能清空';
+
+    addChangeLog({
+      cageId: cage.id,
+      cageNumber: cage.cageNumber,
+      strain: cage.strain,
+      changeType: 'elimination_status',
+      fieldName: '淘汰状态',
+      oldValue: formatFieldValue('eliminationStatus', cage.eliminationStatus),
+      newValue: ELIMINATION_STATUS_LABELS.cleared,
+      personInCharge,
+    });
 
     cageStore.updateCage(cageId, { eliminationStatus: 'cleared' });
     return null;
@@ -195,5 +508,26 @@ export function useRecordStore() {
     addRecord,
     clearCage,
     getRecordsByCageId,
+  };
+}
+
+export function useChangeLogStore() {
+  const getChangeLogsByCageId = (cageId: string): CageChangeLog[] => {
+    return changeLogs().filter((l) => l.cageId === cageId);
+  };
+
+  const getAllChangeLogs = (): CageChangeLog[] => {
+    return changeLogs();
+  };
+
+  const getChangeLogsByBatchId = (batchId: string): CageChangeLog[] => {
+    return changeLogs().filter((l) => l.batchId === batchId);
+  };
+
+  return {
+    changeLogs,
+    getChangeLogsByCageId,
+    getAllChangeLogs,
+    getChangeLogsByBatchId,
   };
 }

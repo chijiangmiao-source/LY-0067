@@ -9,6 +9,7 @@ import {
 import CageList from './components/CageList';
 import RecordList from './components/RecordList';
 import StatisticsBoard from './components/StatisticsBoard';
+import ChangeLogHistory from './components/ChangeLogHistory';
 
 export default function App() {
   const [activeTab, setActiveTab] = createSignal(0);
@@ -16,6 +17,7 @@ export default function App() {
   const tabs = [
     { label: '笼位管理' },
     { label: '淘汰记录' },
+    { label: '变更追踪' },
     { label: '统计看板' },
   ];
 
@@ -54,6 +56,9 @@ export default function App() {
               <RecordList />
             </Match>
             <Match when={activeTab() === 2}>
+              <ChangeLogHistory />
+            </Match>
+            <Match when={activeTab() === 3}>
               <StatisticsBoard />
             </Match>
           </Switch>

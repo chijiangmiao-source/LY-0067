@@ -140,7 +140,12 @@ function logFieldChanges(existing: Cage, updates: Partial<Cage>, personInCharge?
 }
 
 export function useCageStore() {
-  const validateCage = (cage: Omit<Cage, 'id' | 'createdAt' | 'updatedAt'>, excludeId?: string, isNew = false): string | null => {
+  const validateCage = (
+    cage: Omit<Cage, 'id' | 'createdAt' | 'updatedAt'>,
+    excludeId?: string,
+    isNew = false,
+    originalNumber?: string
+  ): string | null => {
     if (!cage.cageNumber.trim()) return '笼位编号不能为空';
     if (!cage.strain.trim()) return '动物品系不能为空';
     if (cage.currentCount < 0) return '当前数量必须大于等于 0';
@@ -150,7 +155,8 @@ export function useCageStore() {
     );
     if (duplicate) return '笼位编号不能重复';
 
-    if (isNew && deletedNumbers().includes(cage.cageNumber)) {
+    const numberChanged = originalNumber === undefined || cage.cageNumber !== originalNumber;
+    if (numberChanged && deletedNumbers().includes(cage.cageNumber)) {
       return '该笼位编号已被删除过，不能重复使用';
     }
 
@@ -184,15 +190,22 @@ export function useCageStore() {
     return null;
   };
 
-  const updateCage = (id: string, cageData: Partial<Cage>, personInCharge?: string): string | null => {
+  const updateCage = (
+    id: string,
+    cageData: Partial<Cage>,
+    personInCharge?: string,
+    skipChangeLog = false
+  ): string | null => {
     const existing = cages().find((c) => c.id === id);
     if (!existing) return '笼位不存在';
 
     const merged = { ...existing, ...cageData };
-    const error = validateCage(merged, id, false);
+    const error = validateCage(merged, id, false, existing.cageNumber);
     if (error) return error;
 
-    logFieldChanges(existing, cageData, personInCharge);
+    if (!skipChangeLog) {
+      logFieldChanges(existing, cageData, personInCharge);
+    }
 
     setCages(
       cages().map((c) =>
@@ -393,7 +406,7 @@ export function useCageStore() {
 
 export function useRecordStore() {
   const validateRecord = (
-    record: Omit<EliminationRecord, 'id' | 'cageNumber' | 'createdAt'>,
+    record: Omit<EliminationRecord, 'id' | 'cageNumber' | 'strain' | 'createdAt'>,
     cage: Cage
   ): string | null => {
     const today = new Date();
@@ -412,7 +425,7 @@ export function useRecordStore() {
   };
 
   const addRecord = (
-    recordData: Omit<EliminationRecord, 'id' | 'cageNumber' | 'createdAt'>
+    recordData: Omit<EliminationRecord, 'id' | 'cageNumber' | 'strain' | 'createdAt'>
   ): string | null => {
     const cageStore = useCageStore();
     const cage = cageStore.getCageById(recordData.cageId);
@@ -426,6 +439,7 @@ export function useRecordStore() {
       ...recordData,
       id: generateId(),
       cageNumber: cage.cageNumber,
+      strain: cage.strain,
       createdAt: now,
     };
     setRecords([...records(), newRecord]);
@@ -433,47 +447,30 @@ export function useRecordStore() {
     const newCount = cage.currentCount - recordData.eliminationCount;
     const newStatus = newCount === 0 ? 'eliminated' : cage.eliminationStatus;
 
+    const oldStatusLabel = formatFieldValue('eliminationStatus', cage.eliminationStatus);
+    const newStatusLabel = formatFieldValue('eliminationStatus', newStatus);
+    const statusChanged = newStatus !== cage.eliminationStatus;
+
     addChangeLog({
       cageId: cage.id,
       cageNumber: cage.cageNumber,
       strain: cage.strain,
       changeType: 'elimination',
       fieldName: '淘汰登记',
-      oldValue: `数量 ${cage.currentCount}`,
-      newValue: `淘汰 ${recordData.eliminationCount} 只，剩余 ${newCount}`,
+      oldValue: `数量 ${cage.currentCount}，状态 ${oldStatusLabel}`,
+      newValue: statusChanged
+        ? `淘汰 ${recordData.eliminationCount} 只，剩余 ${newCount}，状态 ${newStatusLabel}`
+        : `淘汰 ${recordData.eliminationCount} 只，剩余 ${newCount}`,
       personInCharge: recordData.personInCharge,
       remarks: recordData.remarks,
     });
 
-    if (newCount !== cage.currentCount) {
-      addChangeLog({
-        cageId: cage.id,
-        cageNumber: cage.cageNumber,
-        strain: cage.strain,
-        changeType: 'count',
-        fieldName: '当前数量',
-        oldValue: cage.currentCount,
-        newValue: newCount,
-        personInCharge: recordData.personInCharge,
-      });
-    }
-    if (newStatus !== cage.eliminationStatus) {
-      addChangeLog({
-        cageId: cage.id,
-        cageNumber: cage.cageNumber,
-        strain: cage.strain,
-        changeType: 'elimination_status',
-        fieldName: '淘汰状态',
-        oldValue: formatFieldValue('eliminationStatus', cage.eliminationStatus),
-        newValue: formatFieldValue('eliminationStatus', newStatus),
-        personInCharge: recordData.personInCharge,
-      });
-    }
-
-    cageStore.updateCage(cage.id, {
-      currentCount: newCount,
-      eliminationStatus: newStatus,
-    });
+    cageStore.updateCage(
+      cage.id,
+      { currentCount: newCount, eliminationStatus: newStatus },
+      undefined,
+      true
+    );
 
     return null;
   };

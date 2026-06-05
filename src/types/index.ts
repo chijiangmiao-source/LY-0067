@@ -31,6 +31,7 @@ export interface EliminationRecord {
   id: string;
   cageId: string;
   cageNumber: string;
+  strain: string;
   eliminationDate: string;
   eliminationCount: number;
   personInCharge: string;

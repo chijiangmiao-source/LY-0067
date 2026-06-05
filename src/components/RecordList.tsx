@@ -25,6 +25,7 @@ export default function RecordList() {
       .filter(
         (r) =>
           r.cageNumber.toLowerCase().includes(text) ||
+          r.strain.toLowerCase().includes(text) ||
           r.personInCharge.toLowerCase().includes(text) ||
           r.remarks.toLowerCase().includes(text)
       )
@@ -36,7 +37,7 @@ export default function RecordList() {
       <Heading size="lg" mb="$4">淘汰记录</Heading>
       <HStack mb="$4">
         <Input
-          placeholder="搜索笼位编号、负责人、备注..."
+          placeholder="搜索笼位编号、品系、负责人、备注..."
           value={searchText()}
           onInput={(e) => setSearchText(e.currentTarget.value)}
           maxW="400px"
@@ -52,6 +53,7 @@ export default function RecordList() {
             <Tr>
               <Th>淘汰日期</Th>
               <Th>笼位编号</Th>
+              <Th>动物品系</Th>
               <Th>淘汰数量</Th>
               <Th>负责人</Th>
               <Th>备注</Th>
@@ -64,6 +66,7 @@ export default function RecordList() {
                 <Td>
                   <Badge colorScheme="primary">{record.cageNumber}</Badge>
                 </Td>
+                <Td>{record.strain}</Td>
                 <Td>{record.eliminationCount}</Td>
                 <Td>{record.personInCharge}</Td>
                 <Td>{record.remarks || '-'}</Td>

@@ -6,16 +6,22 @@ import type {
   CleanStatus,
   BatchOperationResult,
   ChangeLogType,
+  TransferRecord,
+  TransferType,
+  TransferReason,
 } from '../types';
 import {
   ELIMINATION_STATUS_LABELS,
   CLEAN_STATUS_LABELS,
+  TRANSFER_TYPE_LABELS,
+  TRANSFER_REASON_LABELS,
 } from '../constants';
 
 const CAGES_KEY = 'cage_tracker_cages';
 const RECORDS_KEY = 'cage_tracker_records';
 const DELETED_NUMBERS_KEY = 'cage_tracker_deleted_numbers';
 const CHANGE_LOGS_KEY = 'cage_tracker_change_logs';
+const TRANSFER_RECORDS_KEY = 'cage_tracker_transfer_records';
 
 function loadFromStorage<T>(key: string, defaultValue: T): T {
   try {
@@ -48,6 +54,9 @@ const [deletedNumbers, setDeletedNumbers] = createSignal<string[]>(
 const [changeLogs, setChangeLogs] = createSignal<CageChangeLog[]>(
   loadFromStorage<CageChangeLog[]>(CHANGE_LOGS_KEY, [])
 );
+const [transferRecords, setTransferRecords] = createSignal<TransferRecord[]>(
+  loadFromStorage<TransferRecord[]>(TRANSFER_RECORDS_KEY, [])
+);
 
 createEffect(() => {
   saveToStorage(CAGES_KEY, cages());
@@ -63,6 +72,10 @@ createEffect(() => {
 
 createEffect(() => {
   saveToStorage(CHANGE_LOGS_KEY, changeLogs());
+});
+
+createEffect(() => {
+  saveToStorage(TRANSFER_RECORDS_KEY, transferRecords());
 });
 
 export function validatePersonName(name: string): string | null {
@@ -526,5 +539,440 @@ export function useChangeLogStore() {
     getChangeLogsByCageId,
     getAllChangeLogs,
     getChangeLogsByBatchId,
+  };
+}
+
+export function useTransferStore() {
+  const cageStore = useCageStore();
+
+  const validateTransferBase = (data: {
+    transferDate: string;
+    transferCount: number;
+    personInCharge: string;
+  }): string | null => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tDate = new Date(data.transferDate);
+    tDate.setHours(0, 0, 0, 0);
+    if (tDate > today) return '转移日期不能晚于当前日期';
+    if (data.transferCount <= 0) return '转移数量必须大于 0';
+
+    const nameError = validatePersonName(data.personInCharge);
+    if (nameError) return nameError;
+
+    return null;
+  };
+
+  const validateCageUsable = (cage: Cage, action: 'source' | 'target'): string | null => {
+    if (cage.eliminationStatus === 'cleared') {
+      return `笼位「${cage.cageNumber}」已清空，${action === 'source' ? '不能作为转出笼位' : '不能作为转入笼位'}`;
+    }
+    return null;
+  };
+
+  const addTransferChangeLog = (
+    cageId: string,
+    cageNumber: string,
+    strain: string,
+    changeType: ChangeLogType,
+    oldValue: string,
+    newValue: string,
+    personInCharge?: string,
+    remarks?: string
+  ) => {
+    addChangeLog({
+      cageId,
+      cageNumber,
+      strain,
+      changeType,
+      fieldName: TRANSFER_TYPE_LABELS[changeType as TransferType] || '转移',
+      oldValue,
+      newValue,
+      personInCharge,
+      remarks,
+    });
+  };
+
+  const createTransferRecord = (
+    data: Omit<TransferRecord, 'id' | 'createdAt'>
+  ): TransferRecord => {
+    return {
+      ...data,
+      id: generateId(),
+      createdAt: new Date().toISOString(),
+    };
+  };
+
+  const transferIn = (data: {
+    transferDate: string;
+    transferCount: number;
+    toCageId: string;
+    reason: TransferReason;
+    personInCharge: string;
+    remarks: string;
+  }): string | null => {
+    const baseError = validateTransferBase(data);
+    if (baseError) return baseError;
+
+    const toCage = cageStore.getCageById(data.toCageId);
+    if (!toCage) return '转入笼位不存在';
+
+    const usableError = validateCageUsable(toCage, 'target');
+    if (usableError) return usableError;
+
+    const newCount = toCage.currentCount + data.transferCount;
+    if (newCount < 0) return '转移后数量不合法';
+
+    const newElimStatus: Cage['eliminationStatus'] =
+      toCage.eliminationStatus === 'eliminated' && newCount > 0 ? 'normal' : toCage.eliminationStatus;
+
+    const record = createTransferRecord({
+      transferType: 'transfer_in',
+      transferDate: data.transferDate,
+      transferCount: data.transferCount,
+      toCageId: toCage.id,
+      toCageNumber: toCage.cageNumber,
+      toStrain: toCage.strain,
+      reason: data.reason,
+      personInCharge: data.personInCharge,
+      remarks: data.remarks,
+    });
+    setTransferRecords((prev) => [record, ...prev]);
+
+    addTransferChangeLog(
+      toCage.id,
+      toCage.cageNumber,
+      toCage.strain,
+      'transfer_in',
+      `数量 ${toCage.currentCount}${toCage.eliminationStatus !== newElimStatus ? `，状态 ${formatFieldValue('eliminationStatus', toCage.eliminationStatus)}` : ''}`,
+      `转入 ${data.transferCount} 只，数量 ${newCount}${toCage.eliminationStatus !== newElimStatus ? `，状态 ${formatFieldValue('eliminationStatus', newElimStatus)}` : ''}（原因：${TRANSFER_REASON_LABELS[data.reason]}）`,
+      data.personInCharge,
+      data.remarks
+    );
+
+    cageStore.updateCage(
+      toCage.id,
+      { currentCount: newCount, eliminationStatus: newElimStatus },
+      undefined,
+      true
+    );
+
+    return null;
+  };
+
+  const transferOut = (data: {
+    transferDate: string;
+    transferCount: number;
+    fromCageId: string;
+    reason: TransferReason;
+    personInCharge: string;
+    remarks: string;
+  }): string | null => {
+    const baseError = validateTransferBase(data);
+    if (baseError) return baseError;
+
+    const fromCage = cageStore.getCageById(data.fromCageId);
+    if (!fromCage) return '转出笼位不存在';
+
+    const usableError = validateCageUsable(fromCage, 'source');
+    if (usableError) return usableError;
+
+    if (data.transferCount > fromCage.currentCount) {
+      return `转出数量不能超过笼位当前数量（${fromCage.currentCount}）`;
+    }
+
+    const newCount = fromCage.currentCount - data.transferCount;
+    const newElimStatus: Cage['eliminationStatus'] =
+      newCount === 0 && fromCage.eliminationStatus === 'normal' ? 'eliminated' : fromCage.eliminationStatus;
+
+    const record = createTransferRecord({
+      transferType: 'transfer_out',
+      transferDate: data.transferDate,
+      transferCount: data.transferCount,
+      fromCageId: fromCage.id,
+      fromCageNumber: fromCage.cageNumber,
+      fromStrain: fromCage.strain,
+      reason: data.reason,
+      personInCharge: data.personInCharge,
+      remarks: data.remarks,
+    });
+    setTransferRecords((prev) => [record, ...prev]);
+
+    addTransferChangeLog(
+      fromCage.id,
+      fromCage.cageNumber,
+      fromCage.strain,
+      'transfer_out',
+      `数量 ${fromCage.currentCount}${fromCage.eliminationStatus !== newElimStatus ? `，状态 ${formatFieldValue('eliminationStatus', fromCage.eliminationStatus)}` : ''}`,
+      `转出 ${data.transferCount} 只，剩余 ${newCount}${fromCage.eliminationStatus !== newElimStatus ? `，状态 ${formatFieldValue('eliminationStatus', newElimStatus)}` : ''}（原因：${TRANSFER_REASON_LABELS[data.reason]}）`,
+      data.personInCharge,
+      data.remarks
+    );
+
+    cageStore.updateCage(
+      fromCage.id,
+      { currentCount: newCount, eliminationStatus: newElimStatus },
+      undefined,
+      true
+    );
+
+    return null;
+  };
+
+  const mergeCage = (data: {
+    transferDate: string;
+    transferCount: number;
+    fromCageId: string;
+    toCageId: string;
+    reason: TransferReason;
+    personInCharge: string;
+    remarks: string;
+  }): string | null => {
+    const baseError = validateTransferBase(data);
+    if (baseError) return baseError;
+
+    const fromCage = cageStore.getCageById(data.fromCageId);
+    const toCage = cageStore.getCageById(data.toCageId);
+    if (!fromCage) return '转出笼位不存在';
+    if (!toCage) return '转入笼位不存在';
+    if (fromCage.id === toCage.id) return '转出笼位和转入笼位不能相同';
+
+    const fromUsable = validateCageUsable(fromCage, 'source');
+    if (fromUsable) return fromUsable;
+    const toUsable = validateCageUsable(toCage, 'target');
+    if (toUsable) return toUsable;
+
+    if (fromCage.strain !== toCage.strain) {
+      return `合笼要求品系一致（转出：${fromCage.strain}，转入：${toCage.strain}）`;
+    }
+
+    if (data.transferCount > fromCage.currentCount) {
+      return `转出数量不能超过笼位当前数量（${fromCage.currentCount}）`;
+    }
+
+    const fromNewCount = fromCage.currentCount - data.transferCount;
+    const toNewCount = toCage.currentCount + data.transferCount;
+    const fromNewElimStatus: Cage['eliminationStatus'] =
+      fromNewCount === 0 && fromCage.eliminationStatus === 'normal' ? 'eliminated' : fromCage.eliminationStatus;
+    const toNewElimStatus: Cage['eliminationStatus'] =
+      toCage.eliminationStatus === 'eliminated' && toNewCount > 0 ? 'normal' : toCage.eliminationStatus;
+
+    const record = createTransferRecord({
+      transferType: 'merge_cage',
+      transferDate: data.transferDate,
+      transferCount: data.transferCount,
+      fromCageId: fromCage.id,
+      fromCageNumber: fromCage.cageNumber,
+      fromStrain: fromCage.strain,
+      toCageId: toCage.id,
+      toCageNumber: toCage.cageNumber,
+      toStrain: toCage.strain,
+      reason: data.reason,
+      personInCharge: data.personInCharge,
+      remarks: data.remarks,
+    });
+    setTransferRecords((prev) => [record, ...prev]);
+
+    addTransferChangeLog(
+      fromCage.id,
+      fromCage.cageNumber,
+      fromCage.strain,
+      'merge_cage',
+      `数量 ${fromCage.currentCount}${fromCage.eliminationStatus !== fromNewElimStatus ? `，状态 ${formatFieldValue('eliminationStatus', fromCage.eliminationStatus)}` : ''}`,
+      `合笼转出 ${data.transferCount} 只 → ${toCage.cageNumber}，剩余 ${fromNewCount}${fromCage.eliminationStatus !== fromNewElimStatus ? `，状态 ${formatFieldValue('eliminationStatus', fromNewElimStatus)}` : ''}（原因：${TRANSFER_REASON_LABELS[data.reason]}）`,
+      data.personInCharge,
+      data.remarks
+    );
+
+    addTransferChangeLog(
+      toCage.id,
+      toCage.cageNumber,
+      toCage.strain,
+      'merge_cage',
+      `数量 ${toCage.currentCount}${toCage.eliminationStatus !== toNewElimStatus ? `，状态 ${formatFieldValue('eliminationStatus', toCage.eliminationStatus)}` : ''}`,
+      `合笼转入 ${data.transferCount} 只 ← ${fromCage.cageNumber}，数量 ${toNewCount}${toCage.eliminationStatus !== toNewElimStatus ? `，状态 ${formatFieldValue('eliminationStatus', toNewElimStatus)}` : ''}（原因：${TRANSFER_REASON_LABELS[data.reason]}）`,
+      data.personInCharge,
+      data.remarks
+    );
+
+    cageStore.updateCage(
+      fromCage.id,
+      { currentCount: fromNewCount, eliminationStatus: fromNewElimStatus },
+      undefined,
+      true
+    );
+    cageStore.updateCage(
+      toCage.id,
+      { currentCount: toNewCount, eliminationStatus: toNewElimStatus },
+      undefined,
+      true
+    );
+
+    return null;
+  };
+
+  const splitCage = (data: {
+    transferDate: string;
+    transferCount: number;
+    fromCageId: string;
+    toCageId: string;
+    reason: TransferReason;
+    personInCharge: string;
+    remarks: string;
+  }): string | null => {
+    const baseError = validateTransferBase(data);
+    if (baseError) return baseError;
+
+    const fromCage = cageStore.getCageById(data.fromCageId);
+    const toCage = cageStore.getCageById(data.toCageId);
+    if (!fromCage) return '原笼位不存在';
+    if (!toCage) return '目标笼位不存在';
+    if (fromCage.id === toCage.id) return '原笼位和目标笼位不能相同';
+
+    const fromUsable = validateCageUsable(fromCage, 'source');
+    if (fromUsable) return fromUsable;
+    const toUsable = validateCageUsable(toCage, 'target');
+    if (toUsable) return toUsable;
+
+    if (toCage.strain !== fromCage.strain && toCage.currentCount > 0) {
+      return `目标笼位已有动物且品系不同（目标：${toCage.strain}，原笼：${fromCage.strain}）`;
+    }
+
+    if (data.transferCount > fromCage.currentCount) {
+      return `拆笼数量不能超过原笼位当前数量（${fromCage.currentCount}）`;
+    }
+
+    const fromNewCount = fromCage.currentCount - data.transferCount;
+    const toNewCount = toCage.currentCount + data.transferCount;
+    const fromNewElimStatus: Cage['eliminationStatus'] =
+      fromNewCount === 0 && fromCage.eliminationStatus === 'normal' ? 'eliminated' : fromCage.eliminationStatus;
+    const toNewElimStatus: Cage['eliminationStatus'] =
+      toCage.eliminationStatus === 'eliminated' && toNewCount > 0 ? 'normal' : toCage.eliminationStatus;
+    const toNewStrain = toCage.currentCount === 0 ? fromCage.strain : toCage.strain;
+
+    const record = createTransferRecord({
+      transferType: 'split_cage',
+      transferDate: data.transferDate,
+      transferCount: data.transferCount,
+      fromCageId: fromCage.id,
+      fromCageNumber: fromCage.cageNumber,
+      fromStrain: fromCage.strain,
+      toCageId: toCage.id,
+      toCageNumber: toCage.cageNumber,
+      toStrain: toNewStrain,
+      reason: data.reason,
+      personInCharge: data.personInCharge,
+      remarks: data.remarks,
+    });
+    setTransferRecords((prev) => [record, ...prev]);
+
+    addTransferChangeLog(
+      fromCage.id,
+      fromCage.cageNumber,
+      fromCage.strain,
+      'split_cage',
+      `数量 ${fromCage.currentCount}${fromCage.eliminationStatus !== fromNewElimStatus ? `，状态 ${formatFieldValue('eliminationStatus', fromCage.eliminationStatus)}` : ''}`,
+      `拆笼转出 ${data.transferCount} 只 → ${toCage.cageNumber}，剩余 ${fromNewCount}${fromCage.eliminationStatus !== fromNewElimStatus ? `，状态 ${formatFieldValue('eliminationStatus', fromNewElimStatus)}` : ''}（原因：${TRANSFER_REASON_LABELS[data.reason]}）`,
+      data.personInCharge,
+      data.remarks
+    );
+
+    const strainChanged = toCage.strain !== toNewStrain;
+    addTransferChangeLog(
+      toCage.id,
+      toCage.cageNumber,
+      toNewStrain,
+      'split_cage',
+      `数量 ${toCage.currentCount}，品系 ${toCage.strain}${toCage.eliminationStatus !== toNewElimStatus ? `，状态 ${formatFieldValue('eliminationStatus', toCage.eliminationStatus)}` : ''}`,
+      `拆笼转入 ${data.transferCount} 只 ← ${fromCage.cageNumber}，数量 ${toNewCount}${strainChanged ? `，品系 ${toNewStrain}` : ''}${toCage.eliminationStatus !== toNewElimStatus ? `，状态 ${formatFieldValue('eliminationStatus', toNewElimStatus)}` : ''}（原因：${TRANSFER_REASON_LABELS[data.reason]}）`,
+      data.personInCharge,
+      data.remarks
+    );
+
+    cageStore.updateCage(
+      fromCage.id,
+      { currentCount: fromNewCount, eliminationStatus: fromNewElimStatus },
+      undefined,
+      true
+    );
+    cageStore.updateCage(
+      toCage.id,
+      { currentCount: toNewCount, eliminationStatus: toNewElimStatus, strain: toNewStrain },
+      undefined,
+      true
+    );
+
+    return null;
+  };
+
+  const shelfAdjust = (data: {
+    transferDate: string;
+    fromCageId: string;
+    fromShelf: string;
+    toShelf: string;
+    reason: TransferReason;
+    personInCharge: string;
+    remarks: string;
+  }): string | null => {
+    if (!data.personInCharge.trim()) return '负责人不能为空';
+    const nameError = validatePersonName(data.personInCharge);
+    if (nameError) return nameError;
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tDate = new Date(data.transferDate);
+    tDate.setHours(0, 0, 0, 0);
+    if (tDate > today) return '调整日期不能晚于当前日期';
+
+    const cage = cageStore.getCageById(data.fromCageId);
+    if (!cage) return '笼位不存在';
+
+    if (!data.toShelf.trim()) return '目标架位不能为空';
+
+    const record = createTransferRecord({
+      transferType: 'shelf_adjust',
+      transferDate: data.transferDate,
+      transferCount: cage.currentCount,
+      fromCageId: cage.id,
+      fromCageNumber: cage.cageNumber,
+      fromStrain: cage.strain,
+      fromShelf: data.fromShelf,
+      toShelf: data.toShelf,
+      reason: data.reason,
+      personInCharge: data.personInCharge,
+      remarks: data.remarks,
+    });
+    setTransferRecords((prev) => [record, ...prev]);
+
+    addTransferChangeLog(
+      cage.id,
+      cage.cageNumber,
+      cage.strain,
+      'shelf_adjust',
+      `架位 ${data.fromShelf || '-'}`,
+      `架位调整至 ${data.toShelf}（原因：${TRANSFER_REASON_LABELS[data.reason]}）`,
+      data.personInCharge,
+      data.remarks
+    );
+
+    cageStore.updateCage(cage.id, { shelf: data.toShelf }, undefined, true);
+
+    return null;
+  };
+
+  const getTransferRecordsByCageId = (cageId: string): TransferRecord[] => {
+    return transferRecords().filter(
+      (r) => r.fromCageId === cageId || r.toCageId === cageId
+    );
+  };
+
+  return {
+    transferRecords,
+    transferIn,
+    transferOut,
+    mergeCage,
+    splitCage,
+    shelfAdjust,
+    getTransferRecordsByCageId,
   };
 }

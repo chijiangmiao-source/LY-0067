@@ -1,4 +1,4 @@
-import type { EliminationStatus, CleanStatus, ChangeLogType } from '../types';
+import type { EliminationStatus, CleanStatus, ChangeLogType, TransferType, TransferReason } from '../types';
 
 export const ELIMINATION_STATUS_LABELS: Record<EliminationStatus, string> = {
   normal: '正常',
@@ -26,6 +26,40 @@ export const CLEAN_STATUS_COLORS: Record<CleanStatus, string> = {
   need_clean: 'warning',
 };
 
+export const TRANSFER_TYPE_LABELS: Record<TransferType, string> = {
+  transfer_in: '转入',
+  transfer_out: '转出',
+  merge_cage: '合笼',
+  split_cage: '拆笼',
+  shelf_adjust: '架位调整',
+};
+
+export const TRANSFER_TYPE_COLORS: Record<TransferType, string> = {
+  transfer_in: 'success',
+  transfer_out: 'warning',
+  merge_cage: 'primary',
+  split_cage: 'info',
+  shelf_adjust: 'neutral',
+};
+
+export const TRANSFER_REASON_LABELS: Record<TransferReason, string> = {
+  experimental_arrangement: '实验安排',
+  population_balance: '数量平衡',
+  health_isolation: '健康隔离',
+  cage_cleaning: '笼位清洁',
+  rearing_adjustment: '饲养调整',
+  other: '其他原因',
+};
+
+export const TRANSFER_REASON_LIST: TransferReason[] = [
+  'experimental_arrangement',
+  'population_balance',
+  'health_isolation',
+  'cage_cleaning',
+  'rearing_adjustment',
+  'other',
+];
+
 export const CHANGE_LOG_TYPE_LABELS: Record<ChangeLogType, string> = {
   count: '数量变更',
   elimination_status: '淘汰状态变更',
@@ -38,6 +72,11 @@ export const CHANGE_LOG_TYPE_LABELS: Record<ChangeLogType, string> = {
   batch_mark_to_eliminate: '批量标记待淘汰',
   batch_clear: '批量清空',
   batch_update_clean_status: '批量修改清洁状态',
+  transfer_in: '转入',
+  transfer_out: '转出',
+  merge_cage: '合笼',
+  split_cage: '拆笼',
+  shelf_adjust: '架位调整',
 };
 
 export const CHANGE_LOG_TYPE_COLORS: Record<ChangeLogType, string> = {
@@ -52,4 +91,9 @@ export const CHANGE_LOG_TYPE_COLORS: Record<ChangeLogType, string> = {
   batch_mark_to_eliminate: 'warning',
   batch_clear: 'neutral',
   batch_update_clean_status: 'success',
+  transfer_in: 'success',
+  transfer_out: 'warning',
+  merge_cage: 'primary',
+  split_cage: 'info',
+  shelf_adjust: 'neutral',
 };

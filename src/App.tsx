@@ -10,12 +10,14 @@ import CageList from './components/CageList';
 import RecordList from './components/RecordList';
 import StatisticsBoard from './components/StatisticsBoard';
 import ChangeLogHistory from './components/ChangeLogHistory';
+import TransferManagement from './components/TransferManagement';
 
 export default function App() {
   const [activeTab, setActiveTab] = createSignal(0);
 
   const tabs = [
     { label: '笼位管理' },
+    { label: '笼位转移' },
     { label: '淘汰记录' },
     { label: '变更追踪' },
     { label: '统计看板' },
@@ -53,12 +55,15 @@ export default function App() {
               <CageList />
             </Match>
             <Match when={activeTab() === 1}>
-              <RecordList />
+              <TransferManagement />
             </Match>
             <Match when={activeTab() === 2}>
-              <ChangeLogHistory />
+              <RecordList />
             </Match>
             <Match when={activeTab() === 3}>
+              <ChangeLogHistory />
+            </Match>
+            <Match when={activeTab() === 4}>
               <StatisticsBoard />
             </Match>
           </Switch>

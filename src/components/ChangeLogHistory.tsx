@@ -142,6 +142,11 @@ export default function ChangeLogHistory() {
                 <option value="batch_mark_to_eliminate">批量标记待淘汰</option>
                 <option value="batch_clear">批量清空</option>
                 <option value="batch_update_clean_status">批量修改清洁状态</option>
+                <option value="transfer_in">转入</option>
+                <option value="transfer_out">转出</option>
+                <option value="merge_cage">合笼</option>
+                <option value="split_cage">拆笼</option>
+                <option value="shelf_adjust">架位调整</option>
               </Box>
               <Box
                 as="select"

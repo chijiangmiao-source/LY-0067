@@ -11,13 +11,14 @@ import {
 } from '@hope-ui/solid';
 import Chart from 'solid-echarts';
 import type { EChartsOption } from 'echarts';
-import { useCageStore, useRecordStore, useChangeLogStore } from '../store';
+import { useCageStore, useRecordStore, useChangeLogStore, useTransferStore } from '../store';
 import { ELIMINATION_STATUS_LABELS, CHANGE_LOG_TYPE_LABELS } from '../constants';
 
 export default function StatisticsBoard() {
   const { cages } = useCageStore();
   const { records } = useRecordStore();
   const { changeLogs } = useChangeLogStore();
+  const { transferRecords } = useTransferStore();
 
   const totalCages = createMemo(() => cages().length);
   const totalAnimals = createMemo(() =>
@@ -54,6 +55,15 @@ export default function StatisticsBoard() {
     const today = new Date().toISOString().split('T')[0];
     return changeLogs().filter((log) => log.timestamp.startsWith(today)).length;
   });
+
+  const totalTransfers = createMemo(() => transferRecords().length);
+  const todayTransfers = createMemo(() => {
+    const today = new Date().toISOString().split('T')[0];
+    return transferRecords().filter((r) => r.transferDate === today).length;
+  });
+  const totalTransferAnimals = createMemo(() =>
+    transferRecords().reduce((sum, r) => sum + r.transferCount, 0)
+  );
 
   const batchOperationStats = createMemo(() => {
     const batchLogs = changeLogs().filter((log) => log.batchId);
@@ -180,6 +190,11 @@ export default function StatisticsBoard() {
       batch_mark_to_eliminate: '#f59e0b',
       batch_clear: '#6b7280',
       batch_update_clean_status: '#10b981',
+      transfer_in: '#10b981',
+      transfer_out: '#f59e0b',
+      merge_cage: '#3b82f6',
+      split_cage: '#8b5cf6',
+      shelf_adjust: '#6b7280',
     };
 
     const allTypes = [
@@ -189,6 +204,11 @@ export default function StatisticsBoard() {
       'elimination',
       'cage_created',
       'cage_deleted',
+      'transfer_in',
+      'transfer_out',
+      'merge_cage',
+      'split_cage',
+      'shelf_adjust',
     ];
 
     const seriesData = allTypes.map((type) => ({
@@ -308,7 +328,7 @@ export default function StatisticsBoard() {
         </GridItem>
       </Grid>
 
-      <Grid templateColumns="repeat(3, 1fr)" gap="$4" mb="$6">
+      <Grid templateColumns="repeat(4, 1fr)" gap="$4" mb="$6">
         <GridItem>
           <Box bg="white" shadow="sm" rounded="$md" p="$4">
             <VStack spacing="$2" textAlign="center">
@@ -343,6 +363,19 @@ export default function StatisticsBoard() {
               </Text>
               <Text size="sm" color="gray.500">
                 共影响 {batchOperationStats().totalAffected} 个笼位
+              </Text>
+            </VStack>
+          </Box>
+        </GridItem>
+        <GridItem>
+          <Box bg="white" shadow="sm" rounded="$md" p="$4">
+            <VStack spacing="$2" textAlign="center">
+              <Text color="gray.500">转移操作</Text>
+              <Text size="3xl" weight="bold" color="success.500">
+                {totalTransfers()}
+              </Text>
+              <Text size="sm" color="gray.500">
+                今日 {todayTransfers()} 次，累计 {totalTransferAnimals()} 只
               </Text>
             </VStack>
           </Box>

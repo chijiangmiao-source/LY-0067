@@ -2,6 +2,16 @@ export type EliminationStatus = 'normal' | 'to_eliminate' | 'eliminated' | 'clea
 
 export type CleanStatus = 'clean' | 'dirty' | 'need_clean';
 
+export type TransferType = 'transfer_in' | 'transfer_out' | 'merge_cage' | 'split_cage' | 'shelf_adjust';
+
+export type TransferReason =
+  | 'experimental_arrangement'
+  | 'population_balance'
+  | 'health_isolation'
+  | 'cage_cleaning'
+  | 'rearing_adjustment'
+  | 'other';
+
 export type ChangeLogType =
   | 'count'
   | 'elimination_status'
@@ -13,7 +23,12 @@ export type ChangeLogType =
   | 'elimination'
   | 'batch_mark_to_eliminate'
   | 'batch_clear'
-  | 'batch_update_clean_status';
+  | 'batch_update_clean_status'
+  | 'transfer_in'
+  | 'transfer_out'
+  | 'merge_cage'
+  | 'split_cage'
+  | 'shelf_adjust';
 
 export interface Cage {
   id: string;
@@ -64,3 +79,22 @@ export type BatchOperationType =
   | 'mark_to_eliminate'
   | 'clear_cages'
   | 'update_clean_status';
+
+export interface TransferRecord {
+  id: string;
+  transferType: TransferType;
+  transferDate: string;
+  transferCount: number;
+  fromCageId?: string;
+  fromCageNumber?: string;
+  fromStrain?: string;
+  toCageId?: string;
+  toCageNumber?: string;
+  toStrain?: string;
+  fromShelf?: string;
+  toShelf?: string;
+  reason: TransferReason;
+  personInCharge: string;
+  remarks: string;
+  createdAt: string;
+}

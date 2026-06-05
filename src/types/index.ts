@@ -93,6 +93,8 @@ export interface TransferRecord {
   toStrain?: string;
   fromShelf?: string;
   toShelf?: string;
+  externalSource?: string;
+  externalTarget?: string;
   reason: TransferReason;
   personInCharge: string;
   remarks: string;

@@ -396,6 +396,7 @@ export default function TransferManagement() {
                 <Th>转移类型</Th>
                 <Th>转出/原笼位</Th>
                 <Th>转入/目标笼位</Th>
+                <Th>来源/去向</Th>
                 <Th>品系</Th>
                 <Th>数量</Th>
                 <Th>架位变更</Th>
@@ -427,6 +428,21 @@ export default function TransferManagement() {
                       <Badge colorScheme="success" variant="subtle">
                         {r.toCageNumber}
                       </Badge>
+                    ) : (
+                      <Text color="gray.400">-</Text>
+                    )}
+                  </Td>
+                  <Td fontSize="sm">
+                    {r.transferType === 'transfer_in' && r.externalSource ? (
+                      <Text>
+                        <Badge colorScheme="success" size="sm" mr="$1">来源</Badge>
+                        {r.externalSource}
+                      </Text>
+                    ) : r.transferType === 'transfer_out' && r.externalTarget ? (
+                      <Text>
+                        <Badge colorScheme="warning" size="sm" mr="$1">去向</Badge>
+                        {r.externalTarget}
+                      </Text>
                     ) : (
                       <Text color="gray.400">-</Text>
                     )}

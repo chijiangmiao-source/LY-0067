@@ -44,6 +44,8 @@ export default function TransferModal(props: TransferModalProps) {
   const [fromCageId, setFromCageId] = createSignal('');
   const [toCageId, setToCageId] = createSignal('');
   const [toShelf, setToShelf] = createSignal('');
+  const [externalSource, setExternalSource] = createSignal('');
+  const [externalTarget, setExternalTarget] = createSignal('');
   const [reason, setReason] = createSignal<TransferReason>('experimental_arrangement');
   const [personInCharge, setPersonInCharge] = createSignal('');
   const [remarks, setRemarks] = createSignal('');
@@ -65,6 +67,8 @@ export default function TransferModal(props: TransferModalProps) {
     setFromCageId(props.defaultCage?.id || '');
     setToCageId('');
     setToShelf('');
+    setExternalSource('');
+    setExternalTarget('');
     setReason('experimental_arrangement');
     setPersonInCharge('');
     setRemarks('');
@@ -100,14 +104,14 @@ export default function TransferModal(props: TransferModalProps) {
           err = '请选择转入笼位';
           break;
         }
-        err = transferIn({ ...baseData, toCageId: toCageId() });
+        err = transferIn({ ...baseData, toCageId: toCageId(), externalSource: externalSource() });
         break;
       case 'transfer_out':
         if (!fromCageId()) {
           err = '请选择转出笼位';
           break;
         }
-        err = transferOut({ ...baseData, fromCageId: fromCageId() });
+        err = transferOut({ ...baseData, fromCageId: fromCageId(), externalTarget: externalTarget() });
         break;
       case 'merge_cage':
         if (!fromCageId()) {
@@ -241,93 +245,119 @@ export default function TransferModal(props: TransferModalProps) {
             </HStack>
 
             {transferType() === 'transfer_in' && (
-              <FormControl required>
-                <FormLabel>转入笼位</FormLabel>
-                <Box
-                  as="select"
-                  value={toCageId()}
-                  onChange={(e) => setToCageId(e.currentTarget.value)}
-                  w="100%"
-                  px="$3"
-                  py="$2"
-                  border="1px solid"
-                  borderColor="neutral.200"
-                  rounded="$md"
-                  fontSize="$md"
-                  bg="white"
-                  _focus={{
-                    outline: 'none',
-                    borderColor: 'primary.500',
-                    boxShadow: '0 0 0 3px rgba(59,130,246,0.1)',
-                  }}
-                >
-                  <option value="">请选择转入笼位</option>
-                  {availableToCages().map((c) => (
-                    <option value={c.id}>
-                      {c.cageNumber} - {c.strain}（当前 {c.currentCount} 只）
-                    </option>
-                  ))}
-                </Box>
-                {toCage() && (
-                  <Box mt="$2" p="$2" bg="success.50" rounded="$md">
-                    <Text size="sm">
-                      笼位 <Badge colorScheme="primary">{toCage()!.cageNumber}</Badge>
-                      <Text as="span" ml="$2">品系：{toCage()!.strain}</Text>
-                      <Text as="span" ml="$2">当前数量：{toCage()!.currentCount}</Text>
-                      <Text as="span" ml="$2">
-                        转移后数量：<Text weight="bold" as="span" color="success.600">
-                          {toCage()!.currentCount + transferCount()}
+              <VStack spacing="$3" align="stretch">
+                <FormControl required>
+                  <FormLabel>转入笼位</FormLabel>
+                  <Box
+                    as="select"
+                    value={toCageId()}
+                    onChange={(e) => setToCageId(e.currentTarget.value)}
+                    w="100%"
+                    px="$3"
+                    py="$2"
+                    border="1px solid"
+                    borderColor="neutral.200"
+                    rounded="$md"
+                    fontSize="$md"
+                    bg="white"
+                    _focus={{
+                      outline: 'none',
+                      borderColor: 'primary.500',
+                      boxShadow: '0 0 0 3px rgba(59,130,246,0.1)',
+                    }}
+                  >
+                    <option value="">请选择转入笼位</option>
+                    {availableToCages().map((c) => (
+                      <option value={c.id}>
+                        {c.cageNumber} - {c.strain}（当前 {c.currentCount} 只）
+                      </option>
+                    ))}
+                  </Box>
+                  {toCage() && (
+                    <Box mt="$2" p="$2" bg="success.50" rounded="$md">
+                      <Text size="sm">
+                        笼位 <Badge colorScheme="primary">{toCage()!.cageNumber}</Badge>
+                        <Text as="span" ml="$2">品系：{toCage()!.strain}</Text>
+                        <Text as="span" ml="$2">当前数量：{toCage()!.currentCount}</Text>
+                        <Text as="span" ml="$2">
+                          转移后数量：<Text weight="bold" as="span" color="success.600">
+                            {toCage()!.currentCount + transferCount()}
+                          </Text>
                         </Text>
                       </Text>
-                    </Text>
-                  </Box>
-                )}
-              </FormControl>
+                    </Box>
+                  )}
+                </FormControl>
+                <FormControl required>
+                  <FormLabel>来源说明</FormLabel>
+                  <Input
+                    value={externalSource()}
+                    onInput={(e) => setExternalSource(e.currentTarget.value)}
+                    placeholder="请输入来源，如：XX实验室、XX笼位编号、供应商名称等"
+                  />
+                  <Text size="xs" color="gray.500" mt="$1">
+                    说明这些实验鼠从哪里转入
+                  </Text>
+                </FormControl>
+              </VStack>
             )}
 
             {transferType() === 'transfer_out' && (
-              <FormControl required>
-                <FormLabel>转出笼位</FormLabel>
-                <Box
-                  as="select"
-                  value={fromCageId()}
-                  onChange={(e) => setFromCageId(e.currentTarget.value)}
-                  w="100%"
-                  px="$3"
-                  py="$2"
-                  border="1px solid"
-                  borderColor="neutral.200"
-                  rounded="$md"
-                  fontSize="$md"
-                  bg="white"
-                  _focus={{
-                    outline: 'none',
-                    borderColor: 'primary.500',
-                    boxShadow: '0 0 0 3px rgba(59,130,246,0.1)',
-                  }}
-                >
-                  <option value="">请选择转出笼位</option>
-                  {availableFromCages().map((c) => (
-                    <option value={c.id}>
-                      {c.cageNumber} - {c.strain}（当前 {c.currentCount} 只）
-                    </option>
-                  ))}
-                </Box>
-                {fromCage() && (
-                  <Box mt="$2" p="$2" bg="warning.50" rounded="$md">
-                    <Text size="sm">
-                      笼位 <Badge colorScheme="primary">{fromCage()!.cageNumber}</Badge>
-                      <Text as="span" ml="$2">品系：{fromCage()!.strain}</Text>
-                      <Text as="span" ml="$2">当前数量：{fromCage()!.currentCount}</Text>
-                      <Text as="span" ml="$2">
-                        转移后剩余：<Text weight="bold" as="span" color="warning.600">
-                          {Math.max(0, fromCage()!.currentCount - transferCount())}
+              <VStack spacing="$3" align="stretch">
+                <FormControl required>
+                  <FormLabel>转出笼位</FormLabel>
+                  <Box
+                    as="select"
+                    value={fromCageId()}
+                    onChange={(e) => setFromCageId(e.currentTarget.value)}
+                    w="100%"
+                    px="$3"
+                    py="$2"
+                    border="1px solid"
+                    borderColor="neutral.200"
+                    rounded="$md"
+                    fontSize="$md"
+                    bg="white"
+                    _focus={{
+                      outline: 'none',
+                      borderColor: 'primary.500',
+                      boxShadow: '0 0 0 3px rgba(59,130,246,0.1)',
+                    }}
+                  >
+                    <option value="">请选择转出笼位</option>
+                    {availableFromCages().map((c) => (
+                      <option value={c.id}>
+                        {c.cageNumber} - {c.strain}（当前 {c.currentCount} 只）
+                      </option>
+                    ))}
+                  </Box>
+                  {fromCage() && (
+                    <Box mt="$2" p="$2" bg="warning.50" rounded="$md">
+                      <Text size="sm">
+                        笼位 <Badge colorScheme="primary">{fromCage()!.cageNumber}</Badge>
+                        <Text as="span" ml="$2">品系：{fromCage()!.strain}</Text>
+                        <Text as="span" ml="$2">当前数量：{fromCage()!.currentCount}</Text>
+                        <Text as="span" ml="$2">
+                          转移后剩余：<Text weight="bold" as="span" color="warning.600">
+                            {Math.max(0, fromCage()!.currentCount - transferCount())}
+                          </Text>
                         </Text>
                       </Text>
-                    </Text>
-                  </Box>
-                )}
-              </FormControl>
+                    </Box>
+                  )}
+                </FormControl>
+                <FormControl required>
+                  <FormLabel>去向说明</FormLabel>
+                  <Input
+                    value={externalTarget()}
+                    onInput={(e) => setExternalTarget(e.currentTarget.value)}
+                    placeholder="请输入去向，如：XX实验室、XX笼位编号、实验组别等"
+                  />
+                  <Text size="xs" color="gray.500" mt="$1">
+                    说明这些实验鼠将转到哪里去
+                  </Text>
+                </FormControl>
+              </VStack>
             )}
 
             {transferType() === 'merge_cage' && (

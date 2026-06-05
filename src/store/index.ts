@@ -607,12 +607,15 @@ export function useTransferStore() {
     transferDate: string;
     transferCount: number;
     toCageId: string;
+    externalSource: string;
     reason: TransferReason;
     personInCharge: string;
     remarks: string;
   }): string | null => {
     const baseError = validateTransferBase(data);
     if (baseError) return baseError;
+
+    if (!data.externalSource.trim()) return '请输入来源说明（从哪里转入）';
 
     const toCage = cageStore.getCageById(data.toCageId);
     if (!toCage) return '转入笼位不存在';
@@ -633,6 +636,7 @@ export function useTransferStore() {
       toCageId: toCage.id,
       toCageNumber: toCage.cageNumber,
       toStrain: toCage.strain,
+      externalSource: data.externalSource,
       reason: data.reason,
       personInCharge: data.personInCharge,
       remarks: data.remarks,
@@ -645,7 +649,7 @@ export function useTransferStore() {
       toCage.strain,
       'transfer_in',
       `数量 ${toCage.currentCount}${toCage.eliminationStatus !== newElimStatus ? `，状态 ${formatFieldValue('eliminationStatus', toCage.eliminationStatus)}` : ''}`,
-      `转入 ${data.transferCount} 只，数量 ${newCount}${toCage.eliminationStatus !== newElimStatus ? `，状态 ${formatFieldValue('eliminationStatus', newElimStatus)}` : ''}（原因：${TRANSFER_REASON_LABELS[data.reason]}）`,
+      `从「${data.externalSource}」转入 ${data.transferCount} 只，数量 ${newCount}${toCage.eliminationStatus !== newElimStatus ? `，状态 ${formatFieldValue('eliminationStatus', newElimStatus)}` : ''}（原因：${TRANSFER_REASON_LABELS[data.reason]}）`,
       data.personInCharge,
       data.remarks
     );
@@ -664,12 +668,15 @@ export function useTransferStore() {
     transferDate: string;
     transferCount: number;
     fromCageId: string;
+    externalTarget: string;
     reason: TransferReason;
     personInCharge: string;
     remarks: string;
   }): string | null => {
     const baseError = validateTransferBase(data);
     if (baseError) return baseError;
+
+    if (!data.externalTarget.trim()) return '请输入去向说明（转到哪里去）';
 
     const fromCage = cageStore.getCageById(data.fromCageId);
     if (!fromCage) return '转出笼位不存在';
@@ -692,6 +699,7 @@ export function useTransferStore() {
       fromCageId: fromCage.id,
       fromCageNumber: fromCage.cageNumber,
       fromStrain: fromCage.strain,
+      externalTarget: data.externalTarget,
       reason: data.reason,
       personInCharge: data.personInCharge,
       remarks: data.remarks,
@@ -704,7 +712,7 @@ export function useTransferStore() {
       fromCage.strain,
       'transfer_out',
       `数量 ${fromCage.currentCount}${fromCage.eliminationStatus !== newElimStatus ? `，状态 ${formatFieldValue('eliminationStatus', fromCage.eliminationStatus)}` : ''}`,
-      `转出 ${data.transferCount} 只，剩余 ${newCount}${fromCage.eliminationStatus !== newElimStatus ? `，状态 ${formatFieldValue('eliminationStatus', newElimStatus)}` : ''}（原因：${TRANSFER_REASON_LABELS[data.reason]}）`,
+      `转出 ${data.transferCount} 只至「${data.externalTarget}」，剩余 ${newCount}${fromCage.eliminationStatus !== newElimStatus ? `，状态 ${formatFieldValue('eliminationStatus', newElimStatus)}` : ''}（原因：${TRANSFER_REASON_LABELS[data.reason]}）`,
       data.personInCharge,
       data.remarks
     );
@@ -927,7 +935,14 @@ export function useTransferStore() {
     const cage = cageStore.getCageById(data.fromCageId);
     if (!cage) return '笼位不存在';
 
+    const usableError = validateCageUsable(cage, 'source');
+    if (usableError) return usableError;
+
     if (!data.toShelf.trim()) return '目标架位不能为空';
+
+    if ((cage.shelf || '').trim() === data.toShelf.trim()) {
+      return '目标架位与原架位相同，无需调整';
+    }
 
     const record = createTransferRecord({
       transferType: 'shelf_adjust',

@@ -1,4 +1,12 @@
-import type { EliminationStatus, CleanStatus, ChangeLogType, TransferType, TransferReason } from '../types';
+import type {
+  EliminationStatus,
+  CleanStatus,
+  ChangeLogType,
+  TransferType,
+  TransferReason,
+  ExperimentStage,
+  BatchUsageStatus,
+} from '../types';
 
 export const ELIMINATION_STATUS_LABELS: Record<EliminationStatus, string> = {
   normal: '正常',
@@ -60,6 +68,57 @@ export const TRANSFER_REASON_LIST: TransferReason[] = [
   'other',
 ];
 
+export const EXPERIMENT_STAGE_LABELS: Record<ExperimentStage, string> = {
+  preparation: '准备阶段',
+  adaptation: '适应阶段',
+  treatment: '处理阶段',
+  observation: '观察阶段',
+  sample_collection: '样本采集',
+  completed: '已完成',
+  other: '其他',
+};
+
+export const EXPERIMENT_STAGE_COLORS: Record<ExperimentStage, string> = {
+  preparation: 'neutral',
+  adaptation: 'info',
+  treatment: 'primary',
+  observation: 'warning',
+  sample_collection: 'success',
+  completed: 'success',
+  other: 'neutral',
+};
+
+export const EXPERIMENT_STAGE_LIST: ExperimentStage[] = [
+  'preparation',
+  'adaptation',
+  'treatment',
+  'observation',
+  'sample_collection',
+  'completed',
+  'other',
+];
+
+export const BATCH_USAGE_STATUS_LABELS: Record<BatchUsageStatus, string> = {
+  active: '进行中',
+  idle: '空闲中',
+  completed: '已完成',
+  archived: '已归档',
+};
+
+export const BATCH_USAGE_STATUS_COLORS: Record<BatchUsageStatus, string> = {
+  active: 'primary',
+  idle: 'neutral',
+  completed: 'success',
+  archived: 'danger',
+};
+
+export const BATCH_USAGE_STATUS_LIST: BatchUsageStatus[] = [
+  'active',
+  'idle',
+  'completed',
+  'archived',
+];
+
 export const CHANGE_LOG_TYPE_LABELS: Record<ChangeLogType, string> = {
   count: '数量变更',
   elimination_status: '淘汰状态变更',
@@ -77,6 +136,9 @@ export const CHANGE_LOG_TYPE_LABELS: Record<ChangeLogType, string> = {
   merge_cage: '合笼',
   split_cage: '拆笼',
   shelf_adjust: '架位调整',
+  experiment_batch_bind: '批次绑定',
+  experiment_batch_unbind: '批次解绑',
+  experiment_batch_update: '批次更新',
 };
 
 export const CHANGE_LOG_TYPE_COLORS: Record<ChangeLogType, string> = {
@@ -96,4 +158,7 @@ export const CHANGE_LOG_TYPE_COLORS: Record<ChangeLogType, string> = {
   merge_cage: 'primary',
   split_cage: 'info',
   shelf_adjust: 'neutral',
+  experiment_batch_bind: 'primary',
+  experiment_batch_unbind: 'warning',
+  experiment_batch_update: 'info',
 };

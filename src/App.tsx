@@ -11,6 +11,7 @@ import RecordList from './components/RecordList';
 import StatisticsBoard from './components/StatisticsBoard';
 import ChangeLogHistory from './components/ChangeLogHistory';
 import TransferManagement from './components/TransferManagement';
+import ExperimentBatchManagement from './components/ExperimentBatchManagement';
 
 export default function App() {
   const [activeTab, setActiveTab] = createSignal(0);
@@ -21,6 +22,7 @@ export default function App() {
     { label: '淘汰记录' },
     { label: '变更追踪' },
     { label: '统计看板' },
+    { label: '实验批次' },
   ];
 
   return (
@@ -65,6 +67,9 @@ export default function App() {
             </Match>
             <Match when={activeTab() === 4}>
               <StatisticsBoard />
+            </Match>
+            <Match when={activeTab() === 5}>
+              <ExperimentBatchManagement />
             </Match>
           </Switch>
         </Box>

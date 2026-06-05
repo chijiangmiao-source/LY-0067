@@ -12,6 +12,21 @@ export type TransferReason =
   | 'rearing_adjustment'
   | 'other';
 
+export type ExperimentStage =
+  | 'preparation'
+  | 'adaptation'
+  | 'treatment'
+  | 'observation'
+  | 'sample_collection'
+  | 'completed'
+  | 'other';
+
+export type BatchUsageStatus =
+  | 'active'
+  | 'idle'
+  | 'completed'
+  | 'archived';
+
 export type ChangeLogType =
   | 'count'
   | 'elimination_status'
@@ -28,7 +43,52 @@ export type ChangeLogType =
   | 'transfer_out'
   | 'merge_cage'
   | 'split_cage'
-  | 'shelf_adjust';
+  | 'shelf_adjust'
+  | 'experiment_batch_bind'
+  | 'experiment_batch_unbind'
+  | 'experiment_batch_update';
+
+export interface ExperimentBatch {
+  id: string;
+  batchNumber: string;
+  projectName: string;
+  experimentStage: ExperimentStage;
+  usageStatus: BatchUsageStatus;
+  personInCharge: string;
+  startDate: string;
+  endDate?: string;
+  remarks?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ExperimentBatchCageAssociation {
+  id: string;
+  batchId: string;
+  cageId: string;
+  cageNumber: string;
+  strain: string;
+  animalCount: number;
+  bindDate: string;
+  unbindDate?: string;
+  isActive: boolean;
+  remarks?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ExperimentBatchOperationAssociation {
+  id: string;
+  batchId: string;
+  operationType: 'transfer_in' | 'transfer_out' | 'merge_cage' | 'split_cage' | 'elimination' | 'cage_created';
+  operationId: string;
+  operationDate: string;
+  cageIds: string[];
+  animalCount: number;
+  personInCharge?: string;
+  remarks?: string;
+  createdAt: string;
+}
 
 export interface Cage {
   id: string;
@@ -38,6 +98,7 @@ export interface Cage {
   shelf: string;
   eliminationStatus: EliminationStatus;
   cleanStatus: CleanStatus;
+  experimentBatchId?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -51,6 +112,7 @@ export interface EliminationRecord {
   eliminationCount: number;
   personInCharge: string;
   remarks: string;
+  experimentBatchId?: string;
   createdAt: string;
 }
 
@@ -67,6 +129,7 @@ export interface CageChangeLog {
   remarks?: string;
   timestamp: string;
   batchId?: string;
+  experimentBatchId?: string;
 }
 
 export interface BatchOperationResult {
@@ -98,5 +161,6 @@ export interface TransferRecord {
   reason: TransferReason;
   personInCharge: string;
   remarks: string;
+  experimentBatchId?: string;
   createdAt: string;
 }

@@ -9,12 +9,19 @@ import type {
   TransferRecord,
   TransferType,
   TransferReason,
+  ExperimentBatch,
+  ExperimentBatchCageAssociation,
+  ExperimentBatchOperationAssociation,
+  ExperimentStage,
+  BatchUsageStatus,
 } from '../types';
 import {
   ELIMINATION_STATUS_LABELS,
   CLEAN_STATUS_LABELS,
   TRANSFER_TYPE_LABELS,
   TRANSFER_REASON_LABELS,
+  EXPERIMENT_STAGE_LABELS,
+  BATCH_USAGE_STATUS_LABELS,
 } from '../constants';
 
 const CAGES_KEY = 'cage_tracker_cages';
@@ -22,6 +29,9 @@ const RECORDS_KEY = 'cage_tracker_records';
 const DELETED_NUMBERS_KEY = 'cage_tracker_deleted_numbers';
 const CHANGE_LOGS_KEY = 'cage_tracker_change_logs';
 const TRANSFER_RECORDS_KEY = 'cage_tracker_transfer_records';
+const EXPERIMENT_BATCHES_KEY = 'cage_tracker_experiment_batches';
+const BATCH_CAGE_ASSOCIATIONS_KEY = 'cage_tracker_batch_cage_associations';
+const BATCH_OPERATION_ASSOCIATIONS_KEY = 'cage_tracker_batch_operation_associations';
 
 function loadFromStorage<T>(key: string, defaultValue: T): T {
   try {
@@ -57,6 +67,15 @@ const [changeLogs, setChangeLogs] = createSignal<CageChangeLog[]>(
 const [transferRecords, setTransferRecords] = createSignal<TransferRecord[]>(
   loadFromStorage<TransferRecord[]>(TRANSFER_RECORDS_KEY, [])
 );
+const [experimentBatches, setExperimentBatches] = createSignal<ExperimentBatch[]>(
+  loadFromStorage<ExperimentBatch[]>(EXPERIMENT_BATCHES_KEY, [])
+);
+const [batchCageAssociations, setBatchCageAssociations] = createSignal<ExperimentBatchCageAssociation[]>(
+  loadFromStorage<ExperimentBatchCageAssociation[]>(BATCH_CAGE_ASSOCIATIONS_KEY, [])
+);
+const [batchOperationAssociations, setBatchOperationAssociations] = createSignal<ExperimentBatchOperationAssociation[]>(
+  loadFromStorage<ExperimentBatchOperationAssociation[]>(BATCH_OPERATION_ASSOCIATIONS_KEY, [])
+);
 
 createEffect(() => {
   saveToStorage(CAGES_KEY, cages());
@@ -76,6 +95,18 @@ createEffect(() => {
 
 createEffect(() => {
   saveToStorage(TRANSFER_RECORDS_KEY, transferRecords());
+});
+
+createEffect(() => {
+  saveToStorage(EXPERIMENT_BATCHES_KEY, experimentBatches());
+});
+
+createEffect(() => {
+  saveToStorage(BATCH_CAGE_ASSOCIATIONS_KEY, batchCageAssociations());
+});
+
+createEffect(() => {
+  saveToStorage(BATCH_OPERATION_ASSOCIATIONS_KEY, batchOperationAssociations());
 });
 
 export function validatePersonName(name: string): string | null {
@@ -108,18 +139,23 @@ function getFieldLabel(fieldName: string): string {
     strain: '动物品系',
     shelf: '所在架位',
     cageNumber: '笼位编号',
+    experimentBatchId: '实验批次',
   };
   return labels[fieldName] || fieldName;
 }
 
-function formatFieldValue(fieldName: string, value: string | number): string {
+function formatFieldValue(fieldName: string, value: string | number | undefined): string {
   if (fieldName === 'eliminationStatus') {
-    return ELIMINATION_STATUS_LABELS[value as keyof typeof ELIMINATION_STATUS_LABELS] || String(value);
+    return ELIMINATION_STATUS_LABELS[value as keyof typeof ELIMINATION_STATUS_LABELS] || String(value || '');
   }
   if (fieldName === 'cleanStatus') {
-    return CLEAN_STATUS_LABELS[value as keyof typeof CLEAN_STATUS_LABELS] || String(value);
+    return CLEAN_STATUS_LABELS[value as keyof typeof CLEAN_STATUS_LABELS] || String(value || '');
   }
-  return String(value);
+  if (fieldName === 'experimentBatchId' && value) {
+    const batch = experimentBatches().find((b) => b.id === value);
+    return batch ? `${batch.batchNumber} - ${batch.projectName}` : String(value);
+  }
+  return String(value || '');
 }
 
 function logFieldChanges(existing: Cage, updates: Partial<Cage>, personInCharge?: string): void {
@@ -129,6 +165,7 @@ function logFieldChanges(existing: Cage, updates: Partial<Cage>, personInCharge?
     cleanStatus: { key: 'cleanStatus', logType: 'clean_status' },
     strain: { key: 'strain', logType: 'strain' },
     shelf: { key: 'shelf', logType: 'shelf' },
+    experimentBatchId: { key: 'experimentBatchId', logType: 'experiment_batch_update' },
   };
 
   for (const mapping of Object.values(fieldMap)) {
@@ -176,7 +213,10 @@ export function useCageStore() {
     return null;
   };
 
-  const addCage = (cageData: Omit<Cage, 'id' | 'createdAt' | 'updatedAt'>, personInCharge?: string): string | null => {
+  const addCage = (
+    cageData: Omit<Cage, 'id' | 'createdAt' | 'updatedAt'>,
+    personInCharge?: string
+  ): string | null => {
     const error = validateCage(cageData, undefined, true);
     if (error) return error;
 
@@ -196,9 +236,29 @@ export function useCageStore() {
       strain: newCage.strain,
       changeType: 'cage_created',
       fieldName: '笼位创建',
-      newValue: `${newCage.cageNumber} (品系: ${newCage.strain}, 数量: ${newCage.currentCount})`,
+      newValue: `${newCage.cageNumber} (品系: ${newCage.strain}, 数量: ${newCage.currentCount})${newCage.experimentBatchId ? `, 批次: ${formatFieldValue('experimentBatchId', newCage.experimentBatchId)}` : ''}`,
       personInCharge,
+      experimentBatchId: newCage.experimentBatchId,
     });
+
+    if (newCage.experimentBatchId && newCage.currentCount > 0) {
+      const batch = experimentBatches().find((b) => b.id === newCage.experimentBatchId);
+      if (batch) {
+        const association: ExperimentBatchCageAssociation = {
+          id: generateId(),
+          batchId: newCage.experimentBatchId,
+          cageId: newCage.id,
+          cageNumber: newCage.cageNumber,
+          strain: newCage.strain,
+          animalCount: newCage.currentCount,
+          bindDate: now.split('T')[0],
+          isActive: true,
+          createdAt: now,
+          updatedAt: now,
+        };
+        setBatchCageAssociations((prev) => [association, ...prev]);
+      }
+    }
 
     return null;
   };
@@ -216,13 +276,61 @@ export function useCageStore() {
     const error = validateCage(merged, id, false, existing.cageNumber);
     if (error) return error;
 
+    const now = new Date().toISOString();
+
+    if (cageData.experimentBatchId !== undefined && cageData.experimentBatchId !== existing.experimentBatchId) {
+      if (existing.experimentBatchId) {
+        setBatchCageAssociations((prev) =>
+          prev.map((a) =>
+            a.cageId === id && a.batchId === existing.experimentBatchId && a.isActive
+              ? { ...a, isActive: false, unbindDate: now.split('T')[0], updatedAt: now }
+              : a
+          )
+        );
+      }
+
+      if (cageData.experimentBatchId) {
+        const batch = experimentBatches().find((b) => b.id === cageData.experimentBatchId);
+        if (batch) {
+          const existingActive = batchCageAssociations().find(
+            (a) => a.cageId === id && a.batchId === cageData.experimentBatchId && a.isActive
+          );
+          if (!existingActive) {
+            const association: ExperimentBatchCageAssociation = {
+              id: generateId(),
+              batchId: cageData.experimentBatchId,
+              cageId: id,
+              cageNumber: merged.cageNumber,
+              strain: merged.strain,
+              animalCount: merged.currentCount,
+              bindDate: now.split('T')[0],
+              isActive: true,
+              createdAt: now,
+              updatedAt: now,
+            };
+            setBatchCageAssociations((prev) => [association, ...prev]);
+          }
+        }
+      }
+    }
+
+    if (cageData.currentCount !== undefined && existing.experimentBatchId) {
+      setBatchCageAssociations((prev) =>
+        prev.map((a) =>
+          a.cageId === id && a.batchId === existing.experimentBatchId && a.isActive
+            ? { ...a, animalCount: cageData.currentCount!, updatedAt: now }
+            : a
+        )
+      );
+    }
+
     if (!skipChangeLog) {
       logFieldChanges(existing, cageData, personInCharge);
     }
 
     setCages(
       cages().map((c) =>
-        c.id === id ? { ...merged, updatedAt: new Date().toISOString() } : c
+        c.id === id ? { ...merged, updatedAt: now } : c
       )
     );
     return null;
@@ -244,6 +352,15 @@ export function useCageStore() {
         oldValue: `${cage.cageNumber} (品系: ${cage.strain}, 数量: ${cage.currentCount})`,
         personInCharge,
       });
+
+      const now = new Date().toISOString();
+      setBatchCageAssociations((prev) =>
+        prev.map((a) =>
+          a.cageId === id && a.isActive
+            ? { ...a, isActive: false, unbindDate: now.split('T')[0], updatedAt: now }
+            : a
+        )
+      );
     }
     setCages(cages().filter((c) => c.id !== id));
   };
@@ -289,6 +406,7 @@ export function useCageStore() {
         newValue: ELIMINATION_STATUS_LABELS.to_eliminate,
         personInCharge,
         batchId,
+        experimentBatchId: cage.experimentBatchId,
       });
 
       setCages(
@@ -341,6 +459,7 @@ export function useCageStore() {
         newValue: ELIMINATION_STATUS_LABELS.cleared,
         personInCharge,
         batchId,
+        experimentBatchId: cage.experimentBatchId,
       });
 
       setCages(
@@ -389,6 +508,7 @@ export function useCageStore() {
         newValue: CLEAN_STATUS_LABELS[cleanStatus],
         personInCharge,
         batchId,
+        experimentBatchId: cage.experimentBatchId,
       });
 
       setCages(
@@ -453,6 +573,7 @@ export function useRecordStore() {
       id: generateId(),
       cageNumber: cage.cageNumber,
       strain: cage.strain,
+      experimentBatchId: cage.experimentBatchId,
       createdAt: now,
     };
     setRecords([...records(), newRecord]);
@@ -476,7 +597,42 @@ export function useRecordStore() {
         : `淘汰 ${recordData.eliminationCount} 只，剩余 ${newCount}`,
       personInCharge: recordData.personInCharge,
       remarks: recordData.remarks,
+      experimentBatchId: cage.experimentBatchId,
     });
+
+    if (cage.experimentBatchId) {
+      const opAssociation: ExperimentBatchOperationAssociation = {
+        id: generateId(),
+        batchId: cage.experimentBatchId,
+        operationType: 'elimination',
+        operationId: newRecord.id,
+        operationDate: recordData.eliminationDate,
+        cageIds: [cage.id],
+        animalCount: recordData.eliminationCount,
+        personInCharge: recordData.personInCharge,
+        remarks: recordData.remarks,
+        createdAt: now,
+      };
+      setBatchOperationAssociations((prev) => [opAssociation, ...prev]);
+
+      if (newCount === 0) {
+        setBatchCageAssociations((prev) =>
+          prev.map((a) =>
+            a.cageId === cage.id && a.batchId === cage.experimentBatchId && a.isActive
+              ? { ...a, isActive: false, unbindDate: recordData.eliminationDate, updatedAt: now, animalCount: 0 }
+              : a
+          )
+        );
+      } else {
+        setBatchCageAssociations((prev) =>
+          prev.map((a) =>
+            a.cageId === cage.id && a.batchId === cage.experimentBatchId && a.isActive
+              ? { ...a, animalCount: newCount, updatedAt: now }
+              : a
+          )
+        );
+      }
+    }
 
     cageStore.updateCage(
       cage.id,
@@ -503,6 +659,7 @@ export function useRecordStore() {
       oldValue: formatFieldValue('eliminationStatus', cage.eliminationStatus),
       newValue: ELIMINATION_STATUS_LABELS.cleared,
       personInCharge,
+      experimentBatchId: cage.experimentBatchId,
     });
 
     cageStore.updateCage(cageId, { eliminationStatus: 'cleared' });
@@ -578,7 +735,8 @@ export function useTransferStore() {
     oldValue: string,
     newValue: string,
     personInCharge?: string,
-    remarks?: string
+    remarks?: string,
+    experimentBatchId?: string
   ) => {
     addChangeLog({
       cageId,
@@ -590,6 +748,7 @@ export function useTransferStore() {
       newValue,
       personInCharge,
       remarks,
+      experimentBatchId,
     });
   };
 
@@ -603,6 +762,31 @@ export function useTransferStore() {
     };
   };
 
+  const createBatchOperationAssociation = (
+    batchId: string,
+    operationType: ExperimentBatchOperationAssociation['operationType'],
+    operationId: string,
+    operationDate: string,
+    cageIds: string[],
+    animalCount: number,
+    personInCharge?: string,
+    remarks?: string
+  ) => {
+    const association: ExperimentBatchOperationAssociation = {
+      id: generateId(),
+      batchId,
+      operationType,
+      operationId,
+      operationDate,
+      cageIds,
+      animalCount,
+      personInCharge,
+      remarks,
+      createdAt: new Date().toISOString(),
+    };
+    setBatchOperationAssociations((prev) => [association, ...prev]);
+  };
+
   const transferIn = (data: {
     transferDate: string;
     transferCount: number;
@@ -611,6 +795,7 @@ export function useTransferStore() {
     reason: TransferReason;
     personInCharge: string;
     remarks: string;
+    experimentBatchId?: string;
   }): string | null => {
     const baseError = validateTransferBase(data);
     if (baseError) return baseError;
@@ -629,6 +814,8 @@ export function useTransferStore() {
     const newElimStatus: Cage['eliminationStatus'] =
       toCage.eliminationStatus === 'eliminated' && newCount > 0 ? 'normal' : toCage.eliminationStatus;
 
+    const batchId = data.experimentBatchId || toCage.experimentBatchId;
+
     const record = createTransferRecord({
       transferType: 'transfer_in',
       transferDate: data.transferDate,
@@ -640,6 +827,7 @@ export function useTransferStore() {
       reason: data.reason,
       personInCharge: data.personInCharge,
       remarks: data.remarks,
+      experimentBatchId: batchId,
     });
     setTransferRecords((prev) => [record, ...prev]);
 
@@ -651,12 +839,52 @@ export function useTransferStore() {
       `数量 ${toCage.currentCount}${toCage.eliminationStatus !== newElimStatus ? `，状态 ${formatFieldValue('eliminationStatus', toCage.eliminationStatus)}` : ''}`,
       `从「${data.externalSource}」转入 ${data.transferCount} 只，数量 ${newCount}${toCage.eliminationStatus !== newElimStatus ? `，状态 ${formatFieldValue('eliminationStatus', newElimStatus)}` : ''}（原因：${TRANSFER_REASON_LABELS[data.reason]}）`,
       data.personInCharge,
-      data.remarks
+      data.remarks,
+      batchId
     );
+
+    if (batchId) {
+      createBatchOperationAssociation(
+        batchId,
+        'transfer_in',
+        record.id,
+        data.transferDate,
+        [toCage.id],
+        data.transferCount,
+        data.personInCharge,
+        data.remarks
+      );
+
+      const now = new Date().toISOString();
+      const existingActive = batchCageAssociations().find(
+        (a) => a.cageId === toCage.id && a.batchId === batchId && a.isActive
+      );
+      if (!existingActive) {
+        const association: ExperimentBatchCageAssociation = {
+          id: generateId(),
+          batchId,
+          cageId: toCage.id,
+          cageNumber: toCage.cageNumber,
+          strain: toCage.strain,
+          animalCount: newCount,
+          bindDate: data.transferDate,
+          isActive: true,
+          createdAt: now,
+          updatedAt: now,
+        };
+        setBatchCageAssociations((prev) => [association, ...prev]);
+      } else {
+        setBatchCageAssociations((prev) =>
+          prev.map((a) =>
+            a.id === existingActive.id ? { ...a, animalCount: newCount, updatedAt: now } : a
+          )
+        );
+      }
+    }
 
     cageStore.updateCage(
       toCage.id,
-      { currentCount: newCount, eliminationStatus: newElimStatus },
+      { currentCount: newCount, eliminationStatus: newElimStatus, experimentBatchId: batchId || toCage.experimentBatchId },
       undefined,
       true
     );
@@ -672,6 +900,7 @@ export function useTransferStore() {
     reason: TransferReason;
     personInCharge: string;
     remarks: string;
+    experimentBatchId?: string;
   }): string | null => {
     const baseError = validateTransferBase(data);
     if (baseError) return baseError;
@@ -692,6 +921,8 @@ export function useTransferStore() {
     const newElimStatus: Cage['eliminationStatus'] =
       newCount === 0 && fromCage.eliminationStatus === 'normal' ? 'eliminated' : fromCage.eliminationStatus;
 
+    const batchId = data.experimentBatchId || fromCage.experimentBatchId;
+
     const record = createTransferRecord({
       transferType: 'transfer_out',
       transferDate: data.transferDate,
@@ -703,6 +934,7 @@ export function useTransferStore() {
       reason: data.reason,
       personInCharge: data.personInCharge,
       remarks: data.remarks,
+      experimentBatchId: batchId,
     });
     setTransferRecords((prev) => [record, ...prev]);
 
@@ -714,8 +946,41 @@ export function useTransferStore() {
       `数量 ${fromCage.currentCount}${fromCage.eliminationStatus !== newElimStatus ? `，状态 ${formatFieldValue('eliminationStatus', fromCage.eliminationStatus)}` : ''}`,
       `转出 ${data.transferCount} 只至「${data.externalTarget}」，剩余 ${newCount}${fromCage.eliminationStatus !== newElimStatus ? `，状态 ${formatFieldValue('eliminationStatus', newElimStatus)}` : ''}（原因：${TRANSFER_REASON_LABELS[data.reason]}）`,
       data.personInCharge,
-      data.remarks
+      data.remarks,
+      batchId
     );
+
+    if (batchId) {
+      createBatchOperationAssociation(
+        batchId,
+        'transfer_out',
+        record.id,
+        data.transferDate,
+        [fromCage.id],
+        data.transferCount,
+        data.personInCharge,
+        data.remarks
+      );
+
+      const now = new Date().toISOString();
+      if (newCount === 0) {
+        setBatchCageAssociations((prev) =>
+          prev.map((a) =>
+            a.cageId === fromCage.id && a.batchId === batchId && a.isActive
+              ? { ...a, isActive: false, unbindDate: data.transferDate, updatedAt: now, animalCount: 0 }
+              : a
+          )
+        );
+      } else {
+        setBatchCageAssociations((prev) =>
+          prev.map((a) =>
+            a.cageId === fromCage.id && a.batchId === batchId && a.isActive
+              ? { ...a, animalCount: newCount, updatedAt: now }
+              : a
+          )
+        );
+      }
+    }
 
     cageStore.updateCage(
       fromCage.id,
@@ -735,6 +1000,7 @@ export function useTransferStore() {
     reason: TransferReason;
     personInCharge: string;
     remarks: string;
+    experimentBatchId?: string;
   }): string | null => {
     const baseError = validateTransferBase(data);
     if (baseError) return baseError;
@@ -765,6 +1031,8 @@ export function useTransferStore() {
     const toNewElimStatus: Cage['eliminationStatus'] =
       toCage.eliminationStatus === 'eliminated' && toNewCount > 0 ? 'normal' : toCage.eliminationStatus;
 
+    const batchId = data.experimentBatchId || toCage.experimentBatchId || fromCage.experimentBatchId;
+
     const record = createTransferRecord({
       transferType: 'merge_cage',
       transferDate: data.transferDate,
@@ -778,6 +1046,7 @@ export function useTransferStore() {
       reason: data.reason,
       personInCharge: data.personInCharge,
       remarks: data.remarks,
+      experimentBatchId: batchId,
     });
     setTransferRecords((prev) => [record, ...prev]);
 
@@ -789,7 +1058,8 @@ export function useTransferStore() {
       `数量 ${fromCage.currentCount}${fromCage.eliminationStatus !== fromNewElimStatus ? `，状态 ${formatFieldValue('eliminationStatus', fromCage.eliminationStatus)}` : ''}`,
       `合笼转出 ${data.transferCount} 只 → ${toCage.cageNumber}，剩余 ${fromNewCount}${fromCage.eliminationStatus !== fromNewElimStatus ? `，状态 ${formatFieldValue('eliminationStatus', fromNewElimStatus)}` : ''}（原因：${TRANSFER_REASON_LABELS[data.reason]}）`,
       data.personInCharge,
-      data.remarks
+      data.remarks,
+      batchId
     );
 
     addTransferChangeLog(
@@ -800,8 +1070,67 @@ export function useTransferStore() {
       `数量 ${toCage.currentCount}${toCage.eliminationStatus !== toNewElimStatus ? `，状态 ${formatFieldValue('eliminationStatus', toCage.eliminationStatus)}` : ''}`,
       `合笼转入 ${data.transferCount} 只 ← ${fromCage.cageNumber}，数量 ${toNewCount}${toCage.eliminationStatus !== toNewElimStatus ? `，状态 ${formatFieldValue('eliminationStatus', toNewElimStatus)}` : ''}（原因：${TRANSFER_REASON_LABELS[data.reason]}）`,
       data.personInCharge,
-      data.remarks
+      data.remarks,
+      batchId
     );
+
+    if (batchId) {
+      createBatchOperationAssociation(
+        batchId,
+        'merge_cage',
+        record.id,
+        data.transferDate,
+        [fromCage.id, toCage.id],
+        data.transferCount,
+        data.personInCharge,
+        data.remarks
+      );
+
+      const now = new Date().toISOString();
+
+      if (fromNewCount === 0 && fromCage.experimentBatchId) {
+        setBatchCageAssociations((prev) =>
+          prev.map((a) =>
+            a.cageId === fromCage.id && a.batchId === fromCage.experimentBatchId && a.isActive
+              ? { ...a, isActive: false, unbindDate: data.transferDate, updatedAt: now, animalCount: 0 }
+              : a
+          )
+        );
+      } else if (fromCage.experimentBatchId) {
+        setBatchCageAssociations((prev) =>
+          prev.map((a) =>
+            a.cageId === fromCage.id && a.batchId === fromCage.experimentBatchId && a.isActive
+              ? { ...a, animalCount: fromNewCount, updatedAt: now }
+              : a
+          )
+        );
+      }
+
+      const toExistingActive = batchCageAssociations().find(
+        (a) => a.cageId === toCage.id && a.batchId === batchId && a.isActive
+      );
+      if (!toExistingActive) {
+        const association: ExperimentBatchCageAssociation = {
+          id: generateId(),
+          batchId,
+          cageId: toCage.id,
+          cageNumber: toCage.cageNumber,
+          strain: toCage.strain,
+          animalCount: toNewCount,
+          bindDate: data.transferDate,
+          isActive: true,
+          createdAt: now,
+          updatedAt: now,
+        };
+        setBatchCageAssociations((prev) => [association, ...prev]);
+      } else {
+        setBatchCageAssociations((prev) =>
+          prev.map((a) =>
+            a.id === toExistingActive.id ? { ...a, animalCount: toNewCount, updatedAt: now } : a
+          )
+        );
+      }
+    }
 
     cageStore.updateCage(
       fromCage.id,
@@ -811,7 +1140,7 @@ export function useTransferStore() {
     );
     cageStore.updateCage(
       toCage.id,
-      { currentCount: toNewCount, eliminationStatus: toNewElimStatus },
+      { currentCount: toNewCount, eliminationStatus: toNewElimStatus, experimentBatchId: batchId || toCage.experimentBatchId },
       undefined,
       true
     );
@@ -827,6 +1156,7 @@ export function useTransferStore() {
     reason: TransferReason;
     personInCharge: string;
     remarks: string;
+    experimentBatchId?: string;
   }): string | null => {
     const baseError = validateTransferBase(data);
     if (baseError) return baseError;
@@ -858,6 +1188,8 @@ export function useTransferStore() {
       toCage.eliminationStatus === 'eliminated' && toNewCount > 0 ? 'normal' : toCage.eliminationStatus;
     const toNewStrain = toCage.currentCount === 0 ? fromCage.strain : toCage.strain;
 
+    const batchId = data.experimentBatchId || fromCage.experimentBatchId || toCage.experimentBatchId;
+
     const record = createTransferRecord({
       transferType: 'split_cage',
       transferDate: data.transferDate,
@@ -871,6 +1203,7 @@ export function useTransferStore() {
       reason: data.reason,
       personInCharge: data.personInCharge,
       remarks: data.remarks,
+      experimentBatchId: batchId,
     });
     setTransferRecords((prev) => [record, ...prev]);
 
@@ -882,7 +1215,8 @@ export function useTransferStore() {
       `数量 ${fromCage.currentCount}${fromCage.eliminationStatus !== fromNewElimStatus ? `，状态 ${formatFieldValue('eliminationStatus', fromCage.eliminationStatus)}` : ''}`,
       `拆笼转出 ${data.transferCount} 只 → ${toCage.cageNumber}，剩余 ${fromNewCount}${fromCage.eliminationStatus !== fromNewElimStatus ? `，状态 ${formatFieldValue('eliminationStatus', fromNewElimStatus)}` : ''}（原因：${TRANSFER_REASON_LABELS[data.reason]}）`,
       data.personInCharge,
-      data.remarks
+      data.remarks,
+      batchId
     );
 
     const strainChanged = toCage.strain !== toNewStrain;
@@ -894,8 +1228,67 @@ export function useTransferStore() {
       `数量 ${toCage.currentCount}，品系 ${toCage.strain}${toCage.eliminationStatus !== toNewElimStatus ? `，状态 ${formatFieldValue('eliminationStatus', toCage.eliminationStatus)}` : ''}`,
       `拆笼转入 ${data.transferCount} 只 ← ${fromCage.cageNumber}，数量 ${toNewCount}${strainChanged ? `，品系 ${toNewStrain}` : ''}${toCage.eliminationStatus !== toNewElimStatus ? `，状态 ${formatFieldValue('eliminationStatus', toNewElimStatus)}` : ''}（原因：${TRANSFER_REASON_LABELS[data.reason]}）`,
       data.personInCharge,
-      data.remarks
+      data.remarks,
+      batchId
     );
+
+    if (batchId) {
+      createBatchOperationAssociation(
+        batchId,
+        'split_cage',
+        record.id,
+        data.transferDate,
+        [fromCage.id, toCage.id],
+        data.transferCount,
+        data.personInCharge,
+        data.remarks
+      );
+
+      const now = new Date().toISOString();
+
+      if (fromNewCount === 0 && fromCage.experimentBatchId) {
+        setBatchCageAssociations((prev) =>
+          prev.map((a) =>
+            a.cageId === fromCage.id && a.batchId === fromCage.experimentBatchId && a.isActive
+              ? { ...a, isActive: false, unbindDate: data.transferDate, updatedAt: now, animalCount: 0 }
+              : a
+          )
+        );
+      } else if (fromCage.experimentBatchId) {
+        setBatchCageAssociations((prev) =>
+          prev.map((a) =>
+            a.cageId === fromCage.id && a.batchId === fromCage.experimentBatchId && a.isActive
+              ? { ...a, animalCount: fromNewCount, updatedAt: now }
+              : a
+          )
+        );
+      }
+
+      const toExistingActive = batchCageAssociations().find(
+        (a) => a.cageId === toCage.id && a.batchId === batchId && a.isActive
+      );
+      if (!toExistingActive) {
+        const association: ExperimentBatchCageAssociation = {
+          id: generateId(),
+          batchId,
+          cageId: toCage.id,
+          cageNumber: toCage.cageNumber,
+          strain: toNewStrain,
+          animalCount: toNewCount,
+          bindDate: data.transferDate,
+          isActive: true,
+          createdAt: now,
+          updatedAt: now,
+        };
+        setBatchCageAssociations((prev) => [association, ...prev]);
+      } else {
+        setBatchCageAssociations((prev) =>
+          prev.map((a) =>
+            a.id === toExistingActive.id ? { ...a, animalCount: toNewCount, updatedAt: now } : a
+          )
+        );
+      }
+    }
 
     cageStore.updateCage(
       fromCage.id,
@@ -905,7 +1298,7 @@ export function useTransferStore() {
     );
     cageStore.updateCage(
       toCage.id,
-      { currentCount: toNewCount, eliminationStatus: toNewElimStatus, strain: toNewStrain },
+      { currentCount: toNewCount, eliminationStatus: toNewElimStatus, strain: toNewStrain, experimentBatchId: batchId || toCage.experimentBatchId },
       undefined,
       true
     );
@@ -956,6 +1349,7 @@ export function useTransferStore() {
       reason: data.reason,
       personInCharge: data.personInCharge,
       remarks: data.remarks,
+      experimentBatchId: cage.experimentBatchId,
     });
     setTransferRecords((prev) => [record, ...prev]);
 
@@ -967,7 +1361,8 @@ export function useTransferStore() {
       `架位 ${data.fromShelf || '-'}`,
       `架位调整至 ${data.toShelf}（原因：${TRANSFER_REASON_LABELS[data.reason]}）`,
       data.personInCharge,
-      data.remarks
+      data.remarks,
+      cage.experimentBatchId
     );
 
     cageStore.updateCage(cage.id, { shelf: data.toShelf }, undefined, true);
@@ -989,5 +1384,332 @@ export function useTransferStore() {
     splitCage,
     shelfAdjust,
     getTransferRecordsByCageId,
+  };
+}
+
+export function useExperimentBatchStore() {
+  const validateBatch = (
+    batch: Omit<ExperimentBatch, 'id' | 'createdAt' | 'updatedAt'>,
+    excludeId?: string
+  ): string | null => {
+    if (!batch.batchNumber.trim()) return '批次编号不能为空';
+    if (!batch.projectName.trim()) return '课题名称不能为空';
+    if (!batch.personInCharge.trim()) return '负责人不能为空';
+    if (!batch.startDate) return '开始日期不能为空';
+
+    const duplicate = experimentBatches().find(
+      (b) => b.batchNumber === batch.batchNumber && b.id !== excludeId
+    );
+    if (duplicate) return '批次编号不能重复';
+
+    const nameError = validatePersonName(batch.personInCharge);
+    if (nameError) return nameError;
+
+    if (batch.endDate && batch.endDate < batch.startDate) {
+      return '结束日期不能早于开始日期';
+    }
+
+    return null;
+  };
+
+  const addBatch = (
+    batchData: Omit<ExperimentBatch, 'id' | 'createdAt' | 'updatedAt'>
+  ): string | null => {
+    const error = validateBatch(batchData);
+    if (error) return error;
+
+    const now = new Date().toISOString();
+    const newBatch: ExperimentBatch = {
+      ...batchData,
+      id: generateId(),
+      createdAt: now,
+      updatedAt: now,
+    };
+    setExperimentBatches([...experimentBatches(), newBatch]);
+    return null;
+  };
+
+  const updateBatch = (
+    id: string,
+    batchData: Partial<ExperimentBatch>
+  ): string | null => {
+    const existing = experimentBatches().find((b) => b.id === id);
+    if (!existing) return '批次不存在';
+
+    const merged = { ...existing, ...batchData };
+    const error = validateBatch(merged, id);
+    if (error) return error;
+
+    setExperimentBatches(
+      experimentBatches().map((b) =>
+        b.id === id ? { ...merged, updatedAt: new Date().toISOString() } : b
+      )
+    );
+    return null;
+  };
+
+  const deleteBatch = (id: string): string | null => {
+    const activeAssociations = batchCageAssociations().filter(
+      (a) => a.batchId === id && a.isActive
+    );
+    if (activeAssociations.length > 0) {
+      return `该批次还有 ${activeAssociations.length} 个笼位在使用中，无法删除`;
+    }
+    setExperimentBatches(experimentBatches().filter((b) => b.id !== id));
+    return null;
+  };
+
+  const getBatchById = (id: string): ExperimentBatch | undefined => {
+    return experimentBatches().find((b) => b.id === id);
+  };
+
+  const bindCageToBatch = (
+    cageId: string,
+    batchId: string,
+    personInCharge?: string
+  ): string | null => {
+    const cageStore = useCageStore();
+    const cage = cageStore.getCageById(cageId);
+    if (!cage) return '笼位不存在';
+
+    const batch = getBatchById(batchId);
+    if (!batch) return '批次不存在';
+
+    if (cage.experimentBatchId === batchId) {
+      return '该笼位已绑定到此批次';
+    }
+
+    const now = new Date().toISOString();
+    if (cage.experimentBatchId) {
+      setBatchCageAssociations((prev) =>
+        prev.map((a) =>
+          a.cageId === cageId && a.batchId === cage.experimentBatchId && a.isActive
+            ? { ...a, isActive: false, unbindDate: now.split('T')[0], updatedAt: now }
+            : a
+        )
+      );
+    }
+
+    cageStore.updateCage(cageId, { experimentBatchId: batchId }, personInCharge);
+
+    addChangeLog({
+      cageId: cage.id,
+      cageNumber: cage.cageNumber,
+      strain: cage.strain,
+      changeType: 'experiment_batch_bind',
+      fieldName: '实验批次',
+      oldValue: formatFieldValue('experimentBatchId', cage.experimentBatchId),
+      newValue: `${batch.batchNumber} - ${batch.projectName}`,
+      personInCharge,
+      experimentBatchId: batchId,
+    });
+
+    const existingAssociation = batchCageAssociations().find(
+      (a) => a.cageId === cageId && a.batchId === batchId
+    );
+    if (existingAssociation) {
+      setBatchCageAssociations((prev) =>
+        prev.map((a) =>
+          a.id === existingAssociation.id
+            ? { ...a, isActive: true, animalCount: cage.currentCount, bindDate: now.split('T')[0], unbindDate: undefined, updatedAt: now }
+            : a
+        )
+      );
+    } else {
+      const association: ExperimentBatchCageAssociation = {
+        id: generateId(),
+        batchId,
+        cageId,
+        cageNumber: cage.cageNumber,
+        strain: cage.strain,
+        animalCount: cage.currentCount,
+        bindDate: now.split('T')[0],
+        isActive: true,
+        createdAt: now,
+        updatedAt: now,
+      };
+      setBatchCageAssociations((prev) => [association, ...prev]);
+    }
+
+    return null;
+  };
+
+  const unbindCageFromBatch = (
+    cageId: string,
+    personInCharge?: string
+  ): string | null => {
+    const cageStore = useCageStore();
+    const cage = cageStore.getCageById(cageId);
+    if (!cage) return '笼位不存在';
+    if (!cage.experimentBatchId) return '该笼位未绑定任何批次';
+
+    const oldBatch = cage.experimentBatchId;
+    cageStore.updateCage(cageId, { experimentBatchId: undefined }, personInCharge);
+
+    addChangeLog({
+      cageId: cage.id,
+      cageNumber: cage.cageNumber,
+      strain: cage.strain,
+      changeType: 'experiment_batch_unbind',
+      fieldName: '实验批次',
+      oldValue: formatFieldValue('experimentBatchId', oldBatch),
+      newValue: '（未绑定）',
+      personInCharge,
+    });
+
+    const now = new Date().toISOString();
+    setBatchCageAssociations((prev) =>
+      prev.map((a) =>
+        a.cageId === cageId && a.batchId === oldBatch && a.isActive
+          ? { ...a, isActive: false, unbindDate: now.split('T')[0], updatedAt: now }
+          : a
+      )
+    );
+
+    return null;
+  };
+
+  const getBatchCageAssociations = (batchId: string): ExperimentBatchCageAssociation[] => {
+    return batchCageAssociations().filter((a) => a.batchId === batchId);
+  };
+
+  const getActiveBatchCageAssociations = (batchId: string): ExperimentBatchCageAssociation[] => {
+    return batchCageAssociations().filter((a) => a.batchId === batchId && a.isActive);
+  };
+
+  const getCageBatchAssociation = (cageId: string): ExperimentBatchCageAssociation | undefined => {
+    return batchCageAssociations().find((a) => a.cageId === cageId && a.isActive);
+  };
+
+  const getBatchOperationAssociations = (batchId: string): ExperimentBatchOperationAssociation[] => {
+    return batchOperationAssociations().filter((a) => a.batchId === batchId);
+  };
+
+  const getBatchStats = (batchId: string) => {
+    const associations = getActiveBatchCageAssociations(batchId);
+    const operations = getBatchOperationAssociations(batchId);
+    const totalCages = associations.length;
+    const totalAnimals = associations.reduce((sum, a) => sum + a.animalCount, 0);
+    const totalOperations = operations.length;
+    const totalTransferredIn = operations
+      .filter((o) => o.operationType === 'transfer_in' || o.operationType === 'split_cage')
+      .reduce((sum, o) => sum + o.animalCount, 0);
+    const totalTransferredOut = operations
+      .filter((o) => o.operationType === 'transfer_out' || o.operationType === 'merge_cage')
+      .reduce((sum, o) => sum + o.animalCount, 0);
+    const totalEliminated = operations
+      .filter((o) => o.operationType === 'elimination')
+      .reduce((sum, o) => sum + o.animalCount, 0);
+
+    return {
+      cageCount: totalCages,
+      animalCount: totalAnimals,
+      totalCages,
+      totalAnimals,
+      totalOperations,
+      totalTransferredIn,
+      totalTransferredOut,
+      totalEliminated,
+    };
+  };
+
+  const getAllBatchStats = () => {
+    const batches = experimentBatches();
+    const totalBatches = batches.length;
+    const activeBatches = batches.filter((b) => b.usageStatus === 'active').length;
+    const idleBatches = batches.filter((b) => b.usageStatus === 'idle').length;
+    const completedBatches = batches.filter((b) => b.usageStatus === 'completed').length;
+    const archivedBatches = batches.filter((b) => b.usageStatus === 'archived').length;
+
+    const activeCageAssociations = batchCageAssociations().filter((a) => a.isActive);
+    const activeCages = activeCageAssociations.length;
+    const totalAnimals = activeCageAssociations.reduce((sum, a) => sum + a.animalCount, 0);
+
+    const perBatch = batches.map((batch) => ({
+      batch,
+      stats: getBatchStats(batch.id),
+    }));
+
+    return {
+      totalBatches,
+      activeBatches,
+      idleBatches,
+      completedBatches,
+      archivedBatches,
+      activeCages,
+      totalAnimals,
+      perBatch,
+    };
+  };
+
+  const getProjectCageDistribution = () => {
+    const distribution: Record<string, { cageCount: number; animalCount: number; batchIds: Set<string> }> = {};
+
+    batchCageAssociations()
+      .filter((a) => a.isActive)
+      .forEach((a) => {
+        const batch = experimentBatches().find((b) => b.id === a.batchId);
+        if (batch) {
+          const key = batch.projectName;
+          if (!distribution[key]) {
+            distribution[key] = { cageCount: 0, animalCount: 0, batchIds: new Set() };
+          }
+          distribution[key].cageCount++;
+          distribution[key].animalCount += a.animalCount;
+          distribution[key].batchIds.add(batch.id);
+        }
+      });
+
+    return Object.entries(distribution).map(([projectName, data]) => ({
+      projectName,
+      cageCount: data.cageCount,
+      animalCount: data.animalCount,
+      batchCount: data.batchIds.size,
+    }));
+  };
+
+  const get30DayBatchTrend = () => {
+    const last30Days = Array.from({ length: 30 }, (_, i) => {
+      const d = new Date();
+      d.setDate(d.getDate() - (29 - i));
+      return d.toISOString().split('T')[0];
+    });
+
+    const operationsByDate = last30Days.map((date) => {
+      const dayOps = batchOperationAssociations().filter((o) => o.operationDate === date);
+      return {
+        date,
+        bindCount: batchCageAssociations().filter((a) => a.bindDate === date).length,
+        unbindCount: batchCageAssociations().filter((a) => a.unbindDate === date).length,
+        operationCount: dayOps.length,
+        transferIn: dayOps.filter((o) => o.operationType === 'transfer_in').reduce((s, o) => s + o.animalCount, 0),
+        transferOut: dayOps.filter((o) => o.operationType === 'transfer_out').reduce((s, o) => s + o.animalCount, 0),
+        mergeCage: dayOps.filter((o) => o.operationType === 'merge_cage').reduce((s, o) => s + o.animalCount, 0),
+        splitCage: dayOps.filter((o) => o.operationType === 'split_cage').reduce((s, o) => s + o.animalCount, 0),
+        elimination: dayOps.filter((o) => o.operationType === 'elimination').reduce((s, o) => s + o.animalCount, 0),
+      };
+    });
+
+    return operationsByDate;
+  };
+
+  return {
+    experimentBatches,
+    batchCageAssociations,
+    batchOperationAssociations,
+    addBatch,
+    updateBatch,
+    deleteBatch,
+    getBatchById,
+    bindCageToBatch,
+    unbindCageFromBatch,
+    getBatchCageAssociations,
+    getActiveBatchCageAssociations,
+    getCageBatchAssociation,
+    getBatchOperationAssociations,
+    getBatchStats,
+    getAllBatchStats,
+    getProjectCageDistribution,
+    get30DayBatchTrend,
   };
 }

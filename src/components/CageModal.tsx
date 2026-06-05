@@ -13,7 +13,7 @@ import {
   Box,
 } from '@hope-ui/solid';
 import type { Cage } from '../types';
-import { useCageStore } from '../store';
+import { useCageStore, useExperimentBatchStore } from '../store';
 
 interface CageModalProps {
   isOpen: boolean;
@@ -23,12 +23,14 @@ interface CageModalProps {
 
 export default function CageModal(props: CageModalProps) {
   const { addCage, updateCage } = useCageStore();
+  const { experimentBatches } = useExperimentBatchStore();
   const [cageNumber, setCageNumber] = createSignal('');
   const [strain, setStrain] = createSignal('');
   const [currentCount, setCurrentCount] = createSignal(0);
   const [shelf, setShelf] = createSignal('');
   const [eliminationStatus, setEliminationStatus] = createSignal<Cage['eliminationStatus']>('normal');
   const [cleanStatus, setCleanStatus] = createSignal<Cage['cleanStatus']>('clean');
+  const [experimentBatchId, setExperimentBatchId] = createSignal<string | undefined>(undefined);
   const [error, setError] = createSignal('');
 
   createEffect(() => {
@@ -39,6 +41,7 @@ export default function CageModal(props: CageModalProps) {
       setShelf(props.cage.shelf);
       setEliminationStatus(props.cage.eliminationStatus);
       setCleanStatus(props.cage.cleanStatus);
+      setExperimentBatchId(props.cage.experimentBatchId);
     } else {
       resetForm();
     }
@@ -51,6 +54,7 @@ export default function CageModal(props: CageModalProps) {
     setShelf('');
     setEliminationStatus('normal');
     setCleanStatus('clean');
+    setExperimentBatchId(undefined);
     setError('');
   };
 
@@ -62,6 +66,7 @@ export default function CageModal(props: CageModalProps) {
       shelf: shelf(),
       eliminationStatus: eliminationStatus(),
       cleanStatus: cleanStatus(),
+      experimentBatchId: experimentBatchId(),
     };
 
     let err: string | null;
@@ -169,6 +174,30 @@ export default function CageModal(props: CageModalProps) {
               <option value="clean">清洁</option>
               <option value="dirty">污染</option>
               <option value="need_clean">待清洁</option>
+            </Box>
+          </FormControl>
+          <FormControl mb="$3">
+            <FormLabel>实验批次</FormLabel>
+            <Box
+              as="select"
+              value={experimentBatchId() || ''}
+              onChange={(e) => setExperimentBatchId(e.currentTarget.value || undefined)}
+              w="100%"
+              px="$3"
+              py="$2"
+              border="1px solid"
+              borderColor="neutral.200"
+              rounded="$md"
+              fontSize="$md"
+              bg="white"
+              _focus={{ outline: "none", borderColor: "primary.500", boxShadow: "0 0 0 3px rgba(59,130,246,0.1)" }}
+            >
+              <option value="">（不绑定）</option>
+              {experimentBatches().map((b) => (
+                <option value={b.id}>
+                  {b.batchNumber} - {b.projectName}（{b.personInCharge}）
+                </option>
+              ))}
             </Box>
           </FormControl>
         </ModalBody>

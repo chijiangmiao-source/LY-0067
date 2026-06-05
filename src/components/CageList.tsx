@@ -21,9 +21,11 @@ import {
   ModalContent,
   ModalOverlay,
   Checkbox,
+  FormControl,
+  FormLabel,
 } from '@hope-ui/solid';
 import type { Cage, CleanStatus, BatchOperationType, BatchOperationResult } from '../types';
-import { useCageStore, useRecordStore } from '../store';
+import { useCageStore, useRecordStore, useExperimentBatchStore } from '../store';
 import {
   ELIMINATION_STATUS_LABELS,
   ELIMINATION_STATUS_COLORS,
@@ -44,8 +46,14 @@ export default function CageList() {
     batchUpdateCleanStatus,
   } = useCageStore();
   const { clearCage } = useRecordStore();
+  const { experimentBatches, bindCageToBatch, unbindCageFromBatch, getBatchById } = useExperimentBatchStore();
   const [searchText, setSearchText] = createSignal('');
   const [statusFilter, setStatusFilter] = createSignal('all');
+  const [batchFilter, setBatchFilter] = createSignal('all');
+  const [batchBindModalOpen, setBatchBindModalOpen] = createSignal(false);
+  const [batchBindingCage, setBatchBindingCage] = createSignal<Cage | null>(null);
+  const [selectedBatchId, setSelectedBatchId] = createSignal('');
+  const [batchBindError, setBatchBindError] = createSignal('');
   const [isModalOpen, setIsModalOpen] = createSignal(false);
   const [isElimModalOpen, setIsElimModalOpen] = createSignal(false);
   const [editingCage, setEditingCage] = createSignal<Cage | null>(null);
@@ -72,7 +80,11 @@ export default function CageList() {
           cage.shelf.toLowerCase().includes(text);
         const matchStatus =
           statusFilter() === 'all' || cage.eliminationStatus === statusFilter();
-        return matchText && matchStatus;
+        const matchBatch =
+          batchFilter() === 'all' ||
+          (batchFilter() === 'none' && !cage.experimentBatchId) ||
+          cage.experimentBatchId === batchFilter();
+        return matchText && matchStatus && matchBatch;
       })
       .sort((a, b) => {
         const priority = { to_eliminate: 0, normal: 1, eliminated: 2, cleared: 3 };
@@ -168,6 +180,32 @@ export default function CageList() {
     updateCage(cage.id, { eliminationStatus: 'normal' });
   };
 
+  const handleBindBatch = (cage: Cage) => {
+    setBatchBindingCage(cage);
+    setSelectedBatchId(cage.experimentBatchId || '');
+    setBatchBindError('');
+    setBatchBindModalOpen(true);
+  };
+
+  const handleUnbindBatch = (cage: Cage) => {
+    unbindCageFromBatch(cage.id);
+  };
+
+  const confirmBindBatch = () => {
+    if (!batchBindingCage()) return;
+    if (!selectedBatchId()) {
+      setBatchBindError('请选择实验批次');
+      return;
+    }
+    const err = bindCageToBatch(batchBindingCage()!.id, selectedBatchId());
+    if (err) {
+      setBatchBindError(err);
+    } else {
+      setBatchBindModalOpen(false);
+      setBatchBindingCage(null);
+    }
+  };
+
   const openBatchOperation = (type: BatchOperationType) => {
     if (selectedCages().length === 0) return;
     setBatchOperationType(type);
@@ -238,6 +276,26 @@ export default function CageList() {
             <option value="eliminated">已淘汰</option>
             <option value="cleared">已清空</option>
           </Box>
+          <Box
+            as="select"
+            value={batchFilter()}
+            onChange={(e) => setBatchFilter(e.currentTarget.value)}
+            maxW="220px"
+            px="$3"
+            py="$2"
+            border="1px solid"
+            borderColor="neutral.200"
+            rounded="$md"
+            fontSize="$md"
+            bg="white"
+            _focus={{ outline: "none", borderColor: "primary.500", boxShadow: "0 0 0 3px rgba(59,130,246,0.1)" }}
+          >
+            <option value="all">全部批次</option>
+            <option value="none">未绑定批次</option>
+            {experimentBatches().map((b) => (
+              <option value={b.id}>{b.batchNumber} - {b.projectName}</option>
+            ))}
+          </Box>
           {selectedCages().length > 0 && (
             <HStack spacing="$2" ml="auto">
               <Badge colorScheme="primary" variant="subtle">
@@ -295,6 +353,7 @@ export default function CageList() {
                 <Th>动物品系</Th>
                 <Th>当前数量</Th>
                 <Th>所在架位</Th>
+                <Th>实验批次</Th>
                 <Th>淘汰状态</Th>
                 <Th>清洁状态</Th>
                 <Th>操作</Th>
@@ -324,6 +383,22 @@ export default function CageList() {
                   <Td>{cage.strain}</Td>
                   <Td>{cage.currentCount}</Td>
                   <Td>{cage.shelf || '-'}</Td>
+                  <Td>
+                    {cage.experimentBatchId ? (
+                      (() => {
+                        const batch = getBatchById(cage.experimentBatchId!);
+                        return batch ? (
+                          <Badge colorScheme="primary" variant="subtle">
+                            {batch.batchNumber}
+                          </Badge>
+                        ) : (
+                          <Text color="gray.400">-</Text>
+                        );
+                      })()
+                    ) : (
+                      <Text color="gray.400">-</Text>
+                    )}
+                  </Td>
                   <Td>
                     <Badge colorScheme={ELIMINATION_STATUS_COLORS[cage.eliminationStatus] as any}>
                       {ELIMINATION_STATUS_LABELS[cage.eliminationStatus]}
@@ -359,6 +434,15 @@ export default function CageList() {
                       {cage.eliminationStatus === 'eliminated' && (
                         <Button size="sm" colorScheme="neutral" onClick={() => handleClear(cage)}>
                           清空
+                        </Button>
+                      )}
+                      {cage.experimentBatchId ? (
+                        <Button size="sm" variant="outline" colorScheme="warning" onClick={() => handleUnbindBatch(cage)}>
+                          解绑批次
+                        </Button>
+                      ) : (
+                        <Button size="sm" variant="outline" colorScheme="primary" onClick={() => handleBindBatch(cage)}>
+                          绑定批次
                         </Button>
                       )}
                       <Button size="sm" variant="outline" colorScheme="danger" onClick={() => handleDelete(cage)}>
@@ -481,6 +565,65 @@ export default function CageList() {
           <ModalFooter>
             <Button colorScheme="primary" onClick={() => setBatchResultOpen(false)}>
               确定
+            </Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
+
+      <Modal opened={batchBindModalOpen()} onClose={() => setBatchBindModalOpen(false)}>
+        <ModalOverlay />
+        <ModalContent>
+          <ModalHeader>绑定实验批次</ModalHeader>
+          <ModalBody>
+            {batchBindingCage() && (
+              <Box mb="$3" p="$3" bg="gray.50" rounded="$md">
+                <Text size="sm" color="gray.600">
+                  笼位编号：<Text color="gray.800" weight="medium" as="span">{batchBindingCage()!.cageNumber}</Text>
+                </Text>
+                <Text size="sm" color="gray.600">
+                  当前数量：<Text color="gray.800" weight="medium" as="span">{batchBindingCage()!.currentCount}</Text>
+                </Text>
+                <Text size="sm" color="gray.600">
+                  动物品系：<Text color="gray.800" weight="medium" as="span">{batchBindingCage()!.strain}</Text>
+                </Text>
+              </Box>
+            )}
+            {batchBindError() && (
+              <Box mb="$3" p="$2" bg="rgba(248, 113, 113, 0.1)" rounded="$md" color="red.400">
+                {batchBindError()}
+              </Box>
+            )}
+            <FormControl required>
+              <FormLabel>选择实验批次</FormLabel>
+              <Box
+                as="select"
+                value={selectedBatchId()}
+                onChange={(e) => setSelectedBatchId(e.currentTarget.value)}
+                w="100%"
+                px="$3"
+                py="$2"
+                border="1px solid"
+                borderColor="neutral.200"
+                rounded="$md"
+                fontSize="$md"
+                bg="white"
+                _focus={{ outline: "none", borderColor: "primary.500", boxShadow: "0 0 0 3px rgba(59,130,246,0.1)" }}
+              >
+                <option value="">请选择实验批次</option>
+                {experimentBatches().map((b) => (
+                  <option value={b.id}>
+                    {b.batchNumber} - {b.projectName}（{b.personInCharge}）
+                  </option>
+                ))}
+              </Box>
+            </FormControl>
+          </ModalBody>
+          <ModalFooter>
+            <Button variant="outline" mr="$3" onClick={() => setBatchBindModalOpen(false)}>
+              取消
+            </Button>
+            <Button colorScheme="primary" onClick={confirmBindBatch}>
+              确认绑定
             </Button>
           </ModalFooter>
         </ModalContent>

@@ -11,14 +11,25 @@ import {
 } from '@hope-ui/solid';
 import Chart from 'solid-echarts';
 import type { EChartsOption } from 'echarts';
-import { useCageStore, useRecordStore, useChangeLogStore, useTransferStore } from '../store';
-import { ELIMINATION_STATUS_LABELS, CHANGE_LOG_TYPE_LABELS } from '../constants';
+import { useCageStore, useRecordStore, useChangeLogStore, useTransferStore, useExperimentBatchStore } from '../store';
+import {
+  ELIMINATION_STATUS_LABELS,
+  CHANGE_LOG_TYPE_LABELS,
+  BATCH_USAGE_STATUS_LABELS,
+  BATCH_USAGE_STATUS_COLORS,
+} from '../constants';
 
 export default function StatisticsBoard() {
   const { cages } = useCageStore();
   const { records } = useRecordStore();
   const { changeLogs } = useChangeLogStore();
   const { transferRecords } = useTransferStore();
+  const {
+    experimentBatches,
+    getAllBatchStats,
+    getProjectCageDistribution,
+    get30DayBatchTrend,
+  } = useExperimentBatchStore();
 
   const totalCages = createMemo(() => cages().length);
   const totalAnimals = createMemo(() =>
@@ -282,6 +293,148 @@ export default function StatisticsBoard() {
     };
   });
 
+  const allBatchStats = createMemo(() => getAllBatchStats());
+  const projectDistribution = createMemo(() => getProjectCageDistribution());
+  const batchTrend30 = createMemo(() => get30DayBatchTrend());
+
+  const batchUsageChartOption = createMemo<EChartsOption>(() => {
+    const stats = allBatchStats();
+    return {
+      title: {
+        text: '批次使用情况统计',
+        left: 'center',
+        textStyle: { fontSize: 14 },
+      },
+      tooltip: { trigger: 'item', formatter: '{b}: {c} ({d}%)' },
+      legend: { orient: 'horizontal', bottom: 0 },
+      series: [
+        {
+          name: '批次数量',
+          type: 'pie',
+          radius: ['35%', '60%'],
+          avoidLabelOverlap: false,
+          itemStyle: {
+            borderRadius: 6,
+            borderColor: '#fff',
+            borderWidth: 2,
+          },
+          label: { show: false, position: 'center' },
+          emphasis: {
+            label: { show: true, fontSize: 18, fontWeight: 'bold' },
+          },
+          labelLine: { show: false },
+          data: [
+            {
+              value: stats.activeBatches,
+              name: BATCH_USAGE_STATUS_LABELS.active,
+              itemStyle: { color: BATCH_USAGE_STATUS_COLORS.active },
+            },
+            {
+              value: stats.idleBatches,
+              name: BATCH_USAGE_STATUS_LABELS.idle,
+              itemStyle: { color: BATCH_USAGE_STATUS_COLORS.idle },
+            },
+            {
+              value: stats.completedBatches,
+              name: BATCH_USAGE_STATUS_LABELS.completed,
+              itemStyle: { color: BATCH_USAGE_STATUS_COLORS.completed },
+            },
+            {
+              value: stats.archivedBatches,
+              name: BATCH_USAGE_STATUS_LABELS.archived,
+              itemStyle: { color: BATCH_USAGE_STATUS_COLORS.archived },
+            },
+          ],
+        },
+      ],
+    };
+  });
+
+  const batchTrendChartOption = createMemo<EChartsOption>(() => {
+    const trend = batchTrend30();
+    return {
+      title: {
+        text: '近30天批次流转趋势',
+        left: 'center',
+        textStyle: { fontSize: 14 },
+      },
+      tooltip: { trigger: 'axis' },
+      legend: {
+        orient: 'horizontal',
+        bottom: 0,
+        data: ['绑定笼位数', '解绑笼位数', '操作次数'],
+      },
+      grid: { top: 50, bottom: 60, left: 50, right: 20 },
+      xAxis: {
+        type: 'category',
+        boundaryGap: false,
+        data: trend.map((d) => d.date.slice(5)),
+        axisLabel: { rotate: 45, fontSize: 10 },
+      },
+      yAxis: { type: 'value', minInterval: 1 },
+      series: [
+        {
+          name: '绑定笼位数',
+          type: 'line',
+          smooth: true,
+          data: trend.map((d) => d.bindCount),
+          itemStyle: { color: '#22c55e' },
+        },
+        {
+          name: '解绑笼位数',
+          type: 'line',
+          smooth: true,
+          data: trend.map((d) => d.unbindCount),
+          itemStyle: { color: '#ef4444' },
+        },
+        {
+          name: '操作次数',
+          type: 'line',
+          smooth: true,
+          data: trend.map((d) => d.operationCount),
+          itemStyle: { color: '#3b82f6' },
+        },
+      ],
+    };
+  });
+
+  const projectCageChartOption = createMemo<EChartsOption>(() => {
+    const dist = projectDistribution();
+    const data = dist.map((d) => ({
+      value: d.cageCount,
+      name: d.projectName,
+    }));
+    return {
+      title: {
+        text: '各课题占用笼位分布',
+        left: 'center',
+        textStyle: { fontSize: 14 },
+      },
+      tooltip: { trigger: 'item', formatter: '{b}: {c}笼 ({d}%)' },
+      legend: { orient: 'vertical', left: 'left', top: 'center' },
+      series: [
+        {
+          name: '笼位数',
+          type: 'pie',
+          radius: '55%',
+          center: ['65%', '50%'],
+          label: {
+            formatter: '{b}\n{d}%',
+            fontSize: 11,
+          },
+          emphasis: {
+            itemStyle: {
+              shadowBlur: 10,
+              shadowOffsetX: 0,
+              shadowColor: 'rgba(0, 0, 0, 0.5)',
+            },
+          },
+          data,
+        },
+      ],
+    };
+  });
+
   return (
     <Box p="$4">
       <Heading size="lg" mb="$4">统计看板</Heading>
@@ -406,11 +559,82 @@ export default function StatisticsBoard() {
         </GridItem>
       </Grid>
 
+      <Heading size="md" mb="$3" mt="$6">实验批次统计</Heading>
+      <Grid templateColumns="repeat(4, 1fr)" gap="$4" mb="$6">
+        <GridItem>
+          <Box bg="white" shadow="sm" rounded="$md" p="$4">
+            <VStack spacing="$2" textAlign="center">
+              <Text color="gray.500">批次总数</Text>
+              <Text size="3xl" weight="bold" color="primary.500">
+                {allBatchStats().totalBatches}
+              </Text>
+            </VStack>
+          </Box>
+        </GridItem>
+        <GridItem>
+          <Box bg="white" shadow="sm" rounded="$md" p="$4">
+            <VStack spacing="$2" textAlign="center">
+              <Text color="gray.500">进行中批次</Text>
+              <Text size="3xl" weight="bold" color="#3b82f6">
+                {allBatchStats().activeBatches}
+              </Text>
+            </VStack>
+          </Box>
+        </GridItem>
+        <GridItem>
+          <Box bg="white" shadow="sm" rounded="$md" p="$4">
+            <VStack spacing="$2" textAlign="center">
+              <Text color="gray.500">绑定笼位数</Text>
+              <Text size="3xl" weight="bold" color="#22c55e">
+                {allBatchStats().activeCages}
+              </Text>
+            </VStack>
+          </Box>
+        </GridItem>
+        <GridItem>
+          <Box bg="white" shadow="sm" rounded="$md" p="$4">
+            <VStack spacing="$2" textAlign="center">
+              <Text color="gray.500">实验动物总数</Text>
+              <Text size="3xl" weight="bold" color="#f59e0b">
+                {allBatchStats().totalAnimals}
+              </Text>
+            </VStack>
+          </Box>
+        </GridItem>
+      </Grid>
+
+      <Grid templateColumns="repeat(3, 1fr)" gap="$4" mb="$4">
+        <GridItem>
+          <Box bg="white" shadow="sm" rounded="$md" p="$4">
+            <Box h="320px">
+              <Chart option={batchUsageChartOption()} />
+            </Box>
+          </Box>
+        </GridItem>
+        <GridItem colSpan={2}>
+          <Box bg="white" shadow="sm" rounded="$md" p="$4">
+            <Box h="320px">
+              <Chart option={batchTrendChartOption()} />
+            </Box>
+          </Box>
+        </GridItem>
+      </Grid>
+
       <Grid templateColumns="repeat(1, 1fr)" gap="$4">
         <GridItem>
           <Box bg="white" shadow="sm" rounded="$md" p="$4">
             <Box h="350px">
               <Chart option={operationTrendOption()} />
+            </Box>
+          </Box>
+        </GridItem>
+      </Grid>
+
+      <Grid templateColumns="repeat(1, 1fr)" gap="$4" mt="$4">
+        <GridItem>
+          <Box bg="white" shadow="sm" rounded="$md" p="$4">
+            <Box h="380px">
+              <Chart option={projectCageChartOption()} />
             </Box>
           </Box>
         </GridItem>

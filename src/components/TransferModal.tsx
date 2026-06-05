@@ -18,7 +18,7 @@ import {
   Badge,
 } from '@hope-ui/solid';
 import type { Cage, TransferType, TransferReason } from '../types';
-import { useCageStore, useTransferStore } from '../store';
+import { useCageStore, useTransferStore, useExperimentBatchStore } from '../store';
 import {
   TRANSFER_TYPE_LABELS,
   TRANSFER_TYPE_COLORS,
@@ -37,6 +37,7 @@ interface TransferModalProps {
 export default function TransferModal(props: TransferModalProps) {
   const { cages } = useCageStore();
   const { transferIn, transferOut, mergeCage, splitCage, shelfAdjust } = useTransferStore();
+  const { experimentBatches } = useExperimentBatchStore();
 
   const [transferType, setTransferType] = createSignal<TransferType>('transfer_in');
   const [transferDate, setTransferDate] = createSignal(new Date().toISOString().split('T')[0]);
@@ -49,6 +50,7 @@ export default function TransferModal(props: TransferModalProps) {
   const [reason, setReason] = createSignal<TransferReason>('experimental_arrangement');
   const [personInCharge, setPersonInCharge] = createSignal('');
   const [remarks, setRemarks] = createSignal('');
+  const [experimentBatchId, setExperimentBatchId] = createSignal<string>('');
   const [error, setError] = createSignal('');
 
   const availableFromCages = () =>
@@ -72,6 +74,7 @@ export default function TransferModal(props: TransferModalProps) {
     setReason('experimental_arrangement');
     setPersonInCharge('');
     setRemarks('');
+    setExperimentBatchId(props.defaultCage?.experimentBatchId || '');
     setError('');
   };
 
@@ -96,6 +99,7 @@ export default function TransferModal(props: TransferModalProps) {
       reason: reason(),
       personInCharge: personInCharge(),
       remarks: remarks(),
+      experimentBatchId: experimentBatchId() || undefined,
     };
 
     switch (transferType()) {
@@ -627,6 +631,37 @@ export default function TransferModal(props: TransferModalProps) {
               </FormControl>
             </HStack>
 
+            <FormControl>
+              <FormLabel>实验批次</FormLabel>
+              <Box
+                as="select"
+                value={experimentBatchId()}
+                onChange={(e) => setExperimentBatchId(e.currentTarget.value)}
+                w="100%"
+                px="$3"
+                py="$2"
+                border="1px solid"
+                borderColor="neutral.200"
+                rounded="$md"
+                fontSize="$md"
+                bg="white"
+                _focus={{
+                  outline: 'none',
+                  borderColor: 'primary.500',
+                  boxShadow: '0 0 0 3px rgba(59,130,246,0.1)',
+                }}
+              >
+                <option value="">（不绑定/使用笼位默认批次）</option>
+                {experimentBatches().map((b) => (
+                  <option value={b.id}>
+                    {b.batchNumber} - {b.projectName}（{b.personInCharge}）
+                  </option>
+                ))}
+              </Box>
+              <Text size="xs" color="gray.500" mt="$1">
+                留空则使用操作笼位已绑定的批次
+              </Text>
+            </FormControl>
             <FormControl>
               <FormLabel>备注</FormLabel>
               <Textarea
